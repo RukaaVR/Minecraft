@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebCraft</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="underwater"></div>
+  <div id="crosshair"></div>
+  <div id="hotbar"></div>
+  <div id="toast"></div>
+  <pre id="debug"></pre>
+  <div id="loading">Generating terrain…</div>
+
+  <div id="inventory">
+    <div class="panel">
+      <h2>Blocks</h2>
+      <p class="hint">Click a block to put it in the selected hotbar slot.</p>
+      <div id="inv-grid"></div>
+      <button id="inv-close" class="btn">Done (E)</button>
+    </div>
+  </div>
+
+  <div id="menu">
+    <div class="panel">
+      <h1>WebCraft</h1>
+      <p class="sub">A Minecraft-style voxel sandbox in your browser</p>
+      <button id="play" class="btn primary">Play</button>
+      <div class="row">
+        <input id="seed" type="text" placeholder="Seed (optional)" aria-label="World seed">
+        <button id="new-world" class="btn">New World</button>
+      </div>
+      <label class="setting">Render distance: <span id="rd-label">6</span> chunks
+        <input id="render-distance" type="range" min="2" max="14" step="1">
+      </label>
+      <label class="setting">Mouse sensitivity
+        <input id="sensitivity" type="range" min="0.2" max="3" step="0.1">
+      </label>
+      <div class="controls">
+        <div><kbd>WASD</kbd> move</div>
+        <div><kbd>Space</kbd> jump / swim</div>
+        <div><kbd>Shift</kbd> sprint</div>
+        <div><kbd>Space</kbd>×2 or <kbd>F</kbd> fly</div>
+        <div><kbd>C</kbd> fly down</div>
+        <div><kbd>Left click</kbd> break</div>
+        <div><kbd>Right click</kbd> place</div>
+        <div><kbd>Middle click</kbd> pick block</div>
+        <div><kbd>1–9</kbd> / wheel: hotbar</div>
+        <div><kbd>E</kbd> block inventory</div>
+        <div><kbd>F3</kbd> debug info</div>
+        <div><kbd>Esc</kbd> pause</div>
+      </div>
+      <p class="hint">Your world saves automatically in this browser.</p>
+    </div>
+  </div>
+
+  <script src="lib/three.min.js"></script>
+  <script src="js/noise.js"></script>
+  <script src="js/blocks.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

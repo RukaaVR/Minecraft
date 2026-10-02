@@ -1,0 +1,435 @@
+// Chunked voxel world: terrain generation, storage, and meshing.
+'use strict';
+
+const CHUNK_SIZE = 16;
+const WORLD_HEIGHT = 128;
+const SEA_LEVEL = 30;
+const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
+
+// Face definitions. Corner order works with indices (0,1,2)(2,1,3).
+const FACES = [
+  { dir: [-1, 0, 0], shade: 0.8, corners: [[0, 1, 0, 0, 1], [0, 0, 0, 0, 0], [0, 1, 1, 1, 1], [0, 0, 1, 1, 0]] },
+  { dir: [1, 0, 0], shade: 0.8, corners: [[1, 1, 1, 0, 1], [1, 0, 1, 0, 0], [1, 1, 0, 1, 1], [1, 0, 0, 1, 0]] },
+  { dir: [0, -1, 0], shade: 0.5, corners: [[1, 0, 1, 1, 0], [0, 0, 1, 0, 0], [1, 0, 0, 1, 1], [0, 0, 0, 0, 1]] },
+  { dir: [0, 1, 0], shade: 1.0, corners: [[0, 1, 1, 1, 1], [1, 1, 1, 0, 1], [0, 1, 0, 1, 0], [1, 1, 0, 0, 0]] },
+  { dir: [0, 0, -1], shade: 0.65, corners: [[1, 0, 0, 0, 0], [0, 0, 0, 1, 0], [1, 1, 0, 0, 1], [0, 1, 0, 1, 1]] },
+  { dir: [0, 0, 1], shade: 0.65, corners: [[0, 0, 1, 0, 0], [1, 0, 1, 1, 0], [0, 1, 1, 0, 1], [1, 1, 1, 1, 1]] },
+];
+const AO_CURVE = [0.45, 0.65, 0.82, 1.0];
+
+class Chunk {
+  constructor(cx, cz) {
+    this.cx = cx;
+    this.cz = cz;
+    this.blocks = new Uint8Array(CHUNK_VOLUME);
+    this.dirty = true;
+    this.solidMesh = null;
+    this.waterMesh = null;
+    this.maxY = 0;
+  }
+  static index(x, y, z) { return (y * CHUNK_SIZE + z) * CHUNK_SIZE + x; }
+  get(x, y, z) { return this.blocks[Chunk.index(x, y, z)]; }
+  set(x, y, z, id) { this.blocks[Chunk.index(x, y, z)] = id; }
+}
+
+class World {
+  constructor(scene, seed, materials) {
+    this.scene = scene;
+    this.seed = seed;
+    this.materials = materials;
+    this.chunks = new Map();
+    this.edits = new Map(); // "cx,cz" -> Map(index -> id)  (player changes, persisted)
+    this.noise = new SimplexNoise(seed);
+    this.noise2 = new SimplexNoise(seed + 1013);
+    this.noise3 = new SimplexNoise(seed + 7777);
+    this.caveNoise = new SimplexNoise(seed + 4242);
+  }
+
+  static key(cx, cz) { return cx + ',' + cz; }
+
+  getChunk(cx, cz) { return this.chunks.get(World.key(cx, cz)); }
+
+  getBlock(x, y, z) {
+    if (y < 0 || y >= WORLD_HEIGHT) return B.AIR;
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    const chunk = this.chunks.get(World.key(cx, cz));
+    if (!chunk) return B.AIR;
+    return chunk.get(x - cx * CHUNK_SIZE, y, z - cz * CHUNK_SIZE);
+  }
+
+  setBlock(x, y, z, id) {
+    if (y < 0 || y >= WORLD_HEIGHT) return false;
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    const chunk = this.getChunk(cx, cz);
+    if (!chunk) return false;
+    const lx = x - cx * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
+    chunk.set(lx, y, lz, id);
+    if (y + 1 > chunk.maxY) chunk.maxY = y + 1;
+    chunk.dirty = true;
+
+    const k = World.key(cx, cz);
+    if (!this.edits.has(k)) this.edits.set(k, new Map());
+    this.edits.get(k).set(Chunk.index(lx, y, lz), id);
+
+    // Neighbouring chunks need a remesh when an edge block changes (faces + AO).
+    const mark = (dx, dz) => { const n = this.getChunk(cx + dx, cz + dz); if (n) n.dirty = true; };
+    if (lx === 0) mark(-1, 0);
+    if (lx === CHUNK_SIZE - 1) mark(1, 0);
+    if (lz === 0) mark(0, -1);
+    if (lz === CHUNK_SIZE - 1) mark(0, 1);
+    if (lx === 0 && lz === 0) mark(-1, -1);
+    if (lx === 0 && lz === CHUNK_SIZE - 1) mark(-1, 1);
+    if (lx === CHUNK_SIZE - 1 && lz === 0) mark(1, -1);
+    if (lx === CHUNK_SIZE - 1 && lz === CHUNK_SIZE - 1) mark(1, 1);
+    return true;
+  }
+
+  // ------------------------------------------------------------------------
+  // Terrain generation
+  // ------------------------------------------------------------------------
+
+  columnInfo(x, z) {
+    const n = this.noise, n2 = this.noise2, n3 = this.noise3;
+    const continental = n.fbm2D(x / 600, z / 600, 3);
+    const hills = n.fbm2D(x / 140, z / 140, 4);
+    const detail = n2.fbm2D(x / 40, z / 40, 3);
+    const mountainMask = Math.max(0, n2.fbm2D(x / 400 + 100, z / 400, 3) * 1.6 - 0.25);
+    const mountains = Math.pow(Math.abs(n3.fbm2D(x / 120, z / 120, 4)), 0.9) * 70 * mountainMask;
+    let h = SEA_LEVEL + 2 + continental * 14 + hills * 9 + detail * 3 + mountains;
+    h = Math.max(4, Math.min(WORLD_HEIGHT - 10, Math.floor(h)));
+    const temperature = n3.fbm2D(x / 500 + 50, z / 500 - 50, 2); // >0.25 = desert
+    return { height: h, desert: temperature > 0.28 };
+  }
+
+  generateChunk(cx, cz) {
+    const chunk = new Chunk(cx, cz);
+    const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
+    const heights = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
+    const deserts = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+    let maxY = SEA_LEVEL + 1;
+
+    for (let z = 0; z < CHUNK_SIZE; z++) {
+      for (let x = 0; x < CHUNK_SIZE; x++) {
+        const wx = ox + x, wz = oz + z;
+        const { height: h, desert } = this.columnInfo(wx, wz);
+        heights[z * CHUNK_SIZE + x] = h;
+        deserts[z * CHUNK_SIZE + x] = desert ? 1 : 0;
+        const beach = h <= SEA_LEVEL + 1;
+        const snowy = h > 78;
+        for (let y = 0; y <= Math.max(h, SEA_LEVEL); y++) {
+          let id;
+          if (y === 0 || (y < 3 && hash3(wx, y, wz, this.seed) < 0.5)) id = B.BEDROCK;
+          else if (y > h) id = B.WATER;
+          else if (y === h) {
+            if (desert || beach) id = h < SEA_LEVEL - 2 ? B.GRAVEL : B.SAND;
+            else if (snowy) id = B.SNOW_GRASS;
+            else id = h < SEA_LEVEL ? B.DIRT : B.GRASS;
+          } else if (y > h - 4) {
+            id = (desert || beach) ? B.SAND : B.DIRT;
+          } else {
+            id = B.STONE;
+            const r = hash3(wx, y, wz, this.seed + 99);
+            if (r < 0.012) id = B.COAL;
+            else if (r < 0.018 && y < 64) id = B.IRON;
+            else if (r < 0.0205 && y < 32) id = B.GOLD;
+            else if (r < 0.022 && y < 16) id = B.DIAMOND;
+            else if (r > 0.995) id = B.GRAVEL;
+          }
+          // Caves: carve below the surface, but don't breach the sea floor.
+          if (id !== B.WATER && id !== B.BEDROCK && y < h - 1 && y > 3) {
+            const c = this.caveNoise.noise3D(wx / 28, y / 18, wz / 28);
+            const c2 = this.caveNoise.noise3D(wx / 28 + 100, y / 18, wz / 28 + 100);
+            if (Math.abs(c) < 0.09 && Math.abs(c2) < 0.09 && !(h <= SEA_LEVEL && y > h - 6)) id = B.AIR;
+          }
+          chunk.set(x, y, z, id);
+        }
+        if (h + 1 > maxY) maxY = h + 1;
+      }
+    }
+
+    // Trees / cacti. Scan a margin around the chunk so trees crossing the
+    // border are generated consistently on both sides.
+    const R = 2;
+    for (let z = -R; z < CHUNK_SIZE + R; z++) {
+      for (let x = -R; x < CHUNK_SIZE + R; x++) {
+        const wx = ox + x, wz = oz + z;
+        const r = hash3(wx, 0, wz, this.seed + 31337);
+        if (r > 0.012) continue;
+        let h, desert;
+        if (x >= 0 && z >= 0 && x < CHUNK_SIZE && z < CHUNK_SIZE) {
+          h = heights[z * CHUNK_SIZE + x]; desert = deserts[z * CHUNK_SIZE + x] === 1;
+        } else {
+          const info = this.columnInfo(wx, wz); h = info.height; desert = info.desert;
+        }
+        if (h <= SEA_LEVEL + 1 || h > 76) continue;
+        if (desert) {
+          if (r > 0.004) continue;
+          const tall = 1 + Math.floor(hash3(wx, 1, wz, this.seed) * 3);
+          for (let i = 1; i <= tall; i++) this._put(chunk, x, h + i, z, B.CACTUS, true);
+          maxY = Math.max(maxY, h + tall + 1);
+          continue;
+        }
+        const trunk = 4 + Math.floor(hash3(wx, 2, wz, this.seed) * 3);
+        const top = h + trunk;
+        for (let ly = top - 2; ly <= top + 1; ly++) {
+          const rad = ly >= top ? 1 : 2;
+          for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
+            if (rad === 2 && Math.abs(dx) === 2 && Math.abs(dz) === 2 && hash3(wx + dx, ly, wz + dz, this.seed) < 0.6) continue;
+            if (ly === top + 1 && Math.abs(dx) === 1 && Math.abs(dz) === 1) continue;
+            this._put(chunk, x + dx, ly, z + dz, B.LEAVES, false);
+          }
+        }
+        for (let i = 1; i <= trunk; i++) this._put(chunk, x, h + i, z, B.LOG, true);
+        if (x >= 0 && z >= 0 && x < CHUNK_SIZE && z < CHUNK_SIZE) chunk.set(x, h, z, B.DIRT);
+        maxY = Math.max(maxY, top + 2);
+      }
+    }
+
+    // Apply saved player edits.
+    const edits = this.edits.get(World.key(cx, cz));
+    if (edits) {
+      for (const [idx, id] of edits) {
+        chunk.blocks[idx] = id;
+        const y = Math.floor(idx / (CHUNK_SIZE * CHUNK_SIZE));
+        if (y + 1 > maxY) maxY = y + 1;
+      }
+    }
+    chunk.maxY = Math.min(WORLD_HEIGHT, maxY + 1);
+    this.chunks.set(World.key(cx, cz), chunk);
+    // Neighbours may now be meshable / need seams fixed.
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dz) continue;
+      const n = this.getChunk(cx + dx, cz + dz);
+      if (n) n.dirty = true;
+    }
+    return chunk;
+  }
+
+  _put(chunk, x, y, z, id, overwrite) {
+    if (x < 0 || z < 0 || x >= CHUNK_SIZE || z >= CHUNK_SIZE || y <= 0 || y >= WORLD_HEIGHT) return;
+    const cur = chunk.get(x, y, z);
+    if (overwrite ? cur !== B.BEDROCK : cur === B.AIR) chunk.set(x, y, z, id);
+  }
+
+  hasAllNeighbours(cx, cz) {
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      if (!this.chunks.has(World.key(cx + dx, cz + dz))) return false;
+    }
+    return true;
+  }
+
+  // ------------------------------------------------------------------------
+  // Meshing
+  // ------------------------------------------------------------------------
+
+  buildMesh(chunk) {
+    const solid = { pos: [], uv: [], col: [], idx: [] };
+    const water = { pos: [], uv: [], col: [], idx: [] };
+    const ox = chunk.cx * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
+
+    // Cache a padded copy of the chunk (+1 border) for fast neighbour lookups.
+    const P = CHUNK_SIZE + 2;
+    const H = chunk.maxY + 1;
+    const pad = new Uint8Array(P * P * (H + 1));
+    const pidx = (x, y, z) => ((y * P + (z + 1)) * P + (x + 1));
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const c = this.getChunk(chunk.cx + dx, chunk.cz + dz);
+      if (!c) continue;
+      const x0 = dx === -1 ? CHUNK_SIZE - 1 : 0, x1 = dx === 1 ? 0 : CHUNK_SIZE - 1;
+      const z0 = dz === -1 ? CHUNK_SIZE - 1 : 0, z1 = dz === 1 ? 0 : CHUNK_SIZE - 1;
+      const maxY = Math.min(H, WORLD_HEIGHT);
+      for (let y = 0; y < maxY; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+        pad[pidx(x + dx * CHUNK_SIZE, y, z + dz * CHUNK_SIZE)] = c.blocks[Chunk.index(x, y, z)];
+      }
+    }
+    const get = (x, y, z) => (y < 0 || y >= H) ? B.AIR : pad[pidx(x, y, z)];
+
+    const uvs = BLOCKS.map((b) => b.tiles.map(tileUV));
+
+    for (let y = 0; y < chunk.maxY; y++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+          const id = get(x, y, z);
+          if (id === B.AIR) continue;
+          const block = BLOCKS[id];
+          const isWater = block.liquid;
+          const out = isWater ? water : solid;
+
+          for (let f = 0; f < 6; f++) {
+            const face = FACES[f];
+            const [dx, dy, dz] = face.dir;
+            const nid = get(x + dx, y + dy, z + dz);
+            if (isWater) {
+              if (nid === B.WATER || isOpaque(nid)) continue;
+              if (dy === -1 && nid !== B.AIR) continue;
+            } else {
+              if (isOpaque(nid)) continue;
+              if (nid === id && id === B.GLASS) continue;
+            }
+
+            const tile = dy === 1 ? 0 : dy === -1 ? 1 : 2;
+            const [u0, v0, u1, v1] = uvs[id][tile];
+            const waterTop = isWater && get(x, y + 1, z) !== B.WATER;
+            const base = out.pos.length / 3;
+            const ao = [0, 0, 0, 0];
+
+            for (let c = 0; c < 4; c++) {
+              const corner = face.corners[c];
+              let py = corner[1];
+              if (waterTop && py === 1) py = 0.875;
+              out.pos.push(ox + x + corner[0], y + py, oz + z + corner[2]);
+              out.uv.push(corner[3] ? u1 : u0, corner[4] ? v1 : v0);
+
+              let light = 1;
+              if (!isWater) {
+                // Ambient occlusion from the three blocks touching this corner.
+                const nx = x + dx, ny = y + dy, nz = z + dz;
+                const sx = dx === 0 ? (corner[0] ? 1 : -1) : 0;
+                const sy = dy === 0 ? (corner[1] ? 1 : -1) : 0;
+                const sz = dz === 0 ? (corner[2] ? 1 : -1) : 0;
+                let a1, a2, a3;
+                if (dx !== 0) { a1 = get(nx, ny + sy, nz); a2 = get(nx, ny, nz + sz); a3 = get(nx, ny + sy, nz + sz); }
+                else if (dy !== 0) { a1 = get(nx + sx, ny, nz); a2 = get(nx, ny, nz + sz); a3 = get(nx + sx, ny, nz + sz); }
+                else { a1 = get(nx + sx, ny, nz); a2 = get(nx, ny + sy, nz); a3 = get(nx + sx, ny + sy, nz); }
+                const s1 = isOpaque(a1) ? 1 : 0, s2 = isOpaque(a2) ? 1 : 0, s3 = isOpaque(a3) ? 1 : 0;
+                const level = (s1 && s2) ? 0 : 3 - (s1 + s2 + s3);
+                ao[c] = level;
+                light = AO_CURVE[level];
+              }
+              const l = light * face.shade;
+              out.col.push(l, l, l);
+            }
+            if (ao[0] + ao[3] > ao[1] + ao[2]) {
+              out.idx.push(base, base + 1, base + 3, base, base + 3, base + 2);
+            } else {
+              out.idx.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+            }
+          }
+        }
+      }
+    }
+
+    chunk.solidMesh = this._replaceMesh(chunk.solidMesh, solid, this.materials.solid);
+    chunk.waterMesh = this._replaceMesh(chunk.waterMesh, water, this.materials.water);
+    if (chunk.waterMesh) chunk.waterMesh.renderOrder = 1;
+    chunk.dirty = false;
+  }
+
+  _replaceMesh(old, data, material) {
+    if (old) {
+      this.scene.remove(old);
+      old.geometry.dispose();
+    }
+    if (data.idx.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
+    const IndexArray = data.pos.length / 3 > 65535 ? Uint32Array : Uint16Array;
+    geo.setIndex(new THREE.BufferAttribute(new IndexArray(data.idx), 1));
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.matrixAutoUpdate = false;
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  unloadChunk(chunk) {
+    for (const m of [chunk.solidMesh, chunk.waterMesh]) {
+      if (m) { this.scene.remove(m); m.geometry.dispose(); }
+    }
+    this.chunks.delete(World.key(chunk.cx, chunk.cz));
+  }
+
+  // Generate / mesh / unload around the player, with a per-frame budget.
+  update(px, pz, renderDistance, budgetMs = 8) {
+    const pcx = Math.floor(px / CHUNK_SIZE), pcz = Math.floor(pz / CHUNK_SIZE);
+    const start = performance.now();
+
+    // Unload far chunks
+    for (const chunk of this.chunks.values()) {
+      if (Math.abs(chunk.cx - pcx) > renderDistance + 2 || Math.abs(chunk.cz - pcz) > renderDistance + 2) {
+        this.unloadChunk(chunk);
+      }
+    }
+
+    // Collect missing / dirty chunks, nearest first.
+    const toGen = [], toMesh = [];
+    const r = renderDistance + 1;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r * r + 1) continue;
+      const cx = pcx + dx, cz = pcz + dz;
+      const chunk = this.getChunk(cx, cz);
+      if (!chunk) toGen.push([d2, cx, cz]);
+      else if (chunk.dirty && d2 <= renderDistance * renderDistance + 1 && this.hasAllNeighbours(cx, cz)) toMesh.push([d2, chunk]);
+    }
+    toMesh.sort((a, b) => a[0] - b[0]);
+    toGen.sort((a, b) => a[0] - b[0]);
+
+    // Always mesh the closest dirty chunks first (block edits feel instant).
+    for (const [, chunk] of toMesh) {
+      this.buildMesh(chunk);
+      if (performance.now() - start > budgetMs) return;
+    }
+    for (const [, cx, cz] of toGen) {
+      this.generateChunk(cx, cz);
+      if (performance.now() - start > budgetMs) return;
+    }
+  }
+
+  // Voxel ray traversal (Amanatides & Woo). Returns hit block + face normal.
+  raycast(origin, dir, maxDist) {
+    let x = Math.floor(origin.x), y = Math.floor(origin.y), z = Math.floor(origin.z);
+    const stepX = Math.sign(dir.x), stepY = Math.sign(dir.y), stepZ = Math.sign(dir.z);
+    const tDeltaX = stepX ? Math.abs(1 / dir.x) : Infinity;
+    const tDeltaY = stepY ? Math.abs(1 / dir.y) : Infinity;
+    const tDeltaZ = stepZ ? Math.abs(1 / dir.z) : Infinity;
+    const frac = (v, s) => s > 0 ? Math.floor(v) + 1 - v : v - Math.floor(v);
+    let tMaxX = stepX ? frac(origin.x, stepX) * tDeltaX : Infinity;
+    let tMaxY = stepY ? frac(origin.y, stepY) * tDeltaY : Infinity;
+    let tMaxZ = stepZ ? frac(origin.z, stepZ) * tDeltaZ : Infinity;
+    let normal = [0, 0, 0];
+    let t = 0;
+    while (t <= maxDist) {
+      const id = this.getBlock(x, y, z);
+      if (id !== B.AIR && id !== B.WATER) return { x, y, z, id, normal };
+      if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+        x += stepX; t = tMaxX; tMaxX += tDeltaX; normal = [-stepX, 0, 0];
+      } else if (tMaxY < tMaxZ) {
+        y += stepY; t = tMaxY; tMaxY += tDeltaY; normal = [0, -stepY, 0];
+      } else {
+        z += stepZ; t = tMaxZ; tMaxZ += tDeltaZ; normal = [0, 0, -stepZ];
+      }
+    }
+    return null;
+  }
+
+  surfaceHeight(x, z) {
+    for (let y = WORLD_HEIGHT - 1; y > 0; y--) {
+      const id = this.getBlock(x, y, z);
+      if (id !== B.AIR && id !== B.LEAVES) return y;
+    }
+    return this.columnInfo(x, z).height;
+  }
+
+  // ---- persistence ----
+  serializeEdits() {
+    const out = {};
+    for (const [k, m] of this.edits) {
+      if (m.size === 0) continue;
+      const arr = [];
+      for (const [idx, id] of m) arr.push(idx, id);
+      out[k] = arr;
+    }
+    return out;
+  }
+  loadEdits(obj) {
+    for (const k of Object.keys(obj || {})) {
+      const arr = obj[k];
+      const m = new Map();
+      for (let i = 0; i < arr.length; i += 2) m.set(arr[i], arr[i + 1]);
+      this.edits.set(k, m);
+    }
+  }
+}
