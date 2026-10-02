@@ -1,0 +1,12 @@
+{
+  "name": "webcraft",
+  "version": "2.0.0",
+  "private": true,
+  "description": "A Minecraft-style voxel game for the browser, with a multiplayer server.",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

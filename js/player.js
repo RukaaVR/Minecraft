@@ -1,15 +1,20 @@
-// First-person player: input, physics and collision.
+// The local player: movement, game modes, health, hunger and air.
 'use strict';
 
 const PLAYER_WIDTH = 0.6;
 const PLAYER_HEIGHT = 1.8;
 const EYE_HEIGHT = 1.62;
+const SNEAK_EYE = 1.32;
+
+const GAME_MODES = ['survival', 'creative', 'adventure', 'spectator'];
 
 class Player {
   constructor(world) {
     this.world = world;
-    this.pos = new THREE.Vector3(0, 80, 0); // feet position
+    this.pos = new THREE.Vector3(0, 80, 0);
     this.vel = new THREE.Vector3();
+    this.w = PLAYER_WIDTH;
+    this.h = PLAYER_HEIGHT;
     this.yaw = 0;
     this.pitch = 0;
     this.onGround = false;
@@ -18,40 +23,64 @@ class Player {
     this.eyeInWater = false;
     this.keys = new Set();
     this.lastSpaceTap = 0;
+    this.lastWTap = 0;
+    this.sprinting = false;
+    this.sneaking = false;
     this.bobTime = 0;
+    this.mode = 'survival';
+    this.hardcore = false;
+    this.health = 20;
+    this.food = 20;
+    this.saturation = 5;
+    this.exhaustion = 0;
+    this.air = 15; // seconds of air (10 bubbles)
+    this.fallStart = null;
+    this.hurtTime = 0;
+    this.invuln = 0;
+    this.regenTimer = 0;
+    this.starveTimer = 0;
+    this.drownTimer = 0;
+    this.dead = false;
+    this.spawn = null;
+    this.inventory = new Inventory(36);
+    this.selected = 0;
+    this.onDamage = null; // callback(amount, cause)
   }
 
-  get eye() {
-    return new THREE.Vector3(this.pos.x, this.pos.y + EYE_HEIGHT, this.pos.z);
-  }
+  get eyeHeight() { return this.sneaking && !this.flying ? SNEAK_EYE : EYE_HEIGHT; }
+  get eye() { return new THREE.Vector3(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z); }
+  get creativeLike() { return this.mode === 'creative' || this.mode === 'spectator'; }
+  get canFly() { return this.mode === 'creative' || this.mode === 'spectator'; }
+  get usesHealth() { return this.mode === 'survival' || this.mode === 'adventure'; }
+  get heldStack() { return this.inventory.slots[this.selected]; }
 
   lookDir() {
     const cp = Math.cos(this.pitch);
     return new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
   }
 
+  setMode(mode) {
+    this.mode = mode;
+    if (mode === 'spectator') this.flying = true;
+    else if (!this.canFly) this.flying = false;
+    this.fallStart = null;
+  }
+
   onKeyDown(code) {
+    const now = performance.now();
     if (code === 'Space' && !this.keys.has('Space')) {
-      const now = performance.now();
-      if (now - this.lastSpaceTap < 300) { this.flying = !this.flying; this.vel.y = 0; }
+      if (this.canFly && this.mode !== 'spectator' && now - this.lastSpaceTap < 300) { this.flying = !this.flying; this.vel.y = 0; }
       this.lastSpaceTap = now;
     }
+    if (code === 'KeyW' && !this.keys.has('KeyW')) {
+      if (now - this.lastWTap < 280) this.sprinting = true;
+      this.lastWTap = now;
+    }
+    if (code === 'ControlLeft' || code === 'ControlRight') this.sprinting = true;
     this.keys.add(code);
   }
   onKeyUp(code) { this.keys.delete(code); }
 
-  collides(px, py, pz) {
-    const w = PLAYER_WIDTH / 2;
-    const x0 = Math.floor(px - w), x1 = Math.floor(px + w);
-    const y0 = Math.floor(py), y1 = Math.floor(py + PLAYER_HEIGHT);
-    const z0 = Math.floor(pz - w), z1 = Math.floor(pz + w);
-    for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
-      if (isSolid(this.world.getBlock(x, y, z))) return true;
-    }
-    return false;
-  }
-
-  // Does the player's box overlap the block at (x, y, z)?
   intersectsBlock(x, y, z) {
     const w = PLAYER_WIDTH / 2;
     return this.pos.x + w > x && this.pos.x - w < x + 1 &&
@@ -59,50 +88,53 @@ class Player {
       this.pos.z + w > z && this.pos.z - w < z + 1;
   }
 
-  moveAxis(axis, amount) {
-    if (amount === 0) return;
-    const p = this.pos;
-    p[axis] += amount;
-    if (!this.collides(p.x, p.y, p.z)) return;
-    const w = PLAYER_WIDTH / 2, eps = 0.001;
-    if (axis === 'y') {
-      if (amount < 0) { p.y = Math.floor(p.y) + 1; this.onGround = true; }
-      else p.y = Math.floor(p.y + PLAYER_HEIGHT) - PLAYER_HEIGHT - eps;
-      this.vel.y = 0;
-    } else {
-      if (amount > 0) p[axis] = Math.floor(p[axis] + w) - w - eps;
-      else p[axis] = Math.floor(p[axis] - w) + 1 + w + eps;
-      this.vel[axis] = 0;
-    }
-    // Safety: if still stuck (e.g. spawned inside a block), undo the move.
-    if (this.collides(p.x, p.y, p.z)) p[axis] -= amount;
+  damage(amount, cause, knock) {
+    if (!this.usesHealth || this.dead || amount <= 0) return false;
+    if (this.invuln > 0 && cause !== 'starve' && cause !== 'drown' && cause !== 'void') return false;
+    this.health = Math.max(0, this.health - amount);
+    this.hurtTime = 0.4;
+    this.invuln = 0.5;
+    this.exhaustion += 0.1;
+    if (knock) { this.vel.x += knock.x; this.vel.z += knock.z; this.vel.y = Math.max(this.vel.y, knock.y || 4); }
+    if (this.onDamage) this.onDamage(amount, cause);
+    return true;
+  }
+
+  heal(amount) { this.health = Math.min(20, this.health + amount); }
+
+  eat(item) {
+    this.food = Math.min(20, this.food + item.food);
+    this.saturation = Math.min(this.food, this.saturation + item.saturation);
   }
 
   update(dt) {
     const k = this.keys;
-    const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.4), Math.floor(this.pos.z));
-    this.inWater = feetBlock === B.WATER;
+    const world = this.world;
+    const feet = world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.3), Math.floor(this.pos.z));
+    this.inWater = feet === B.WATER || boxInBlock(world, this.pos, this.w, 0.9, B.WATER);
     const eye = this.eye;
-    this.eyeInWater = this.world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)) === B.WATER;
+    this.eyeInWater = world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)) === B.WATER;
+    const spectator = this.mode === 'spectator';
 
-    // Desired horizontal movement
+    this.sneaking = !spectator && (k.has('ShiftLeft') || k.has('ShiftRight')) && !this.flying;
     let fx = 0, fz = 0;
     if (k.has('KeyW') || k.has('ArrowUp')) fz -= 1;
     if (k.has('KeyS') || k.has('ArrowDown')) fz += 1;
     if (k.has('KeyA') || k.has('ArrowLeft')) fx -= 1;
     if (k.has('KeyD') || k.has('ArrowRight')) fx += 1;
+    if (fz >= 0 || this.sneaking || (this.usesHealth && this.food <= 6)) this.sprinting = false;
     const len = Math.hypot(fx, fz);
     if (len > 0) { fx /= len; fz /= len; }
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const wx = fx * cos + fz * sin;
     const wz = -fx * sin + fz * cos;
 
-    const sprint = k.has('ShiftLeft') || k.has('ControlLeft') || k.has('ShiftRight');
-    let speed = this.flying ? (sprint ? 22 : 11) : (sprint ? 5.8 : 4.3);
-    if (this.inWater && !this.flying) speed *= 0.55;
+    let speed;
+    if (this.flying) speed = this.sprinting ? 21 : 10.9;
+    else speed = this.sneaking ? 1.3 : this.sprinting ? 5.6 : 4.3;
+    if (this.inWater && !this.flying) speed *= 0.5;
 
-    // Smooth acceleration
-    const accel = this.onGround || this.flying ? 14 : 4;
+    const accel = this.onGround || this.flying ? 14 : 3;
     const t = Math.min(1, accel * dt);
     this.vel.x += (wx * speed - this.vel.x) * t;
     this.vel.z += (wz * speed - this.vel.z) * t;
@@ -110,32 +142,99 @@ class Player {
     if (this.flying) {
       let vy = 0;
       if (k.has('Space')) vy += 1;
-      if (k.has('KeyC') || k.has('KeyQ')) vy -= 1;
-      this.vel.y += (vy * speed - this.vel.y) * Math.min(1, 12 * dt);
+      if (k.has('ShiftLeft') || k.has('ShiftRight')) vy -= 1;
+      this.vel.y += (vy * 8 - this.vel.y) * Math.min(1, 12 * dt);
     } else if (this.inWater) {
       this.vel.y -= 10 * dt;
-      if (k.has('Space')) this.vel.y += 22 * dt;
+      if (k.has('Space')) this.vel.y += 24 * dt;
       this.vel.y = Math.max(-3, Math.min(3.5, this.vel.y));
     } else {
-      this.vel.y -= 28 * dt;
-      if (k.has('Space') && this.onGround) this.vel.y = 8.6;
-      this.vel.y = Math.max(-50, this.vel.y);
+      this.vel.y -= 32 * dt;
+      if (k.has('Space') && this.onGround) {
+        this.vel.y = 9.0;
+        this.exhaustion += this.sprinting ? 0.2 : 0.05;
+        if (this.sprinting) { this.vel.x += wx * 1.5; this.vel.z += wz * 1.5; }
+      }
+      this.vel.y = Math.max(-78, this.vel.y * (1 - 0.02 * dt * 60));
     }
 
-    // Integrate with sub-steps so fast falls never tunnel.
-    const dist = Math.max(Math.abs(this.vel.x), Math.abs(this.vel.y), Math.abs(this.vel.z)) * dt;
-    const steps = Math.max(1, Math.ceil(dist / 0.35));
-    const sdt = dt / steps;
-    this.onGround = false;
-    for (let i = 0; i < steps; i++) {
-      this.moveAxis('x', this.vel.x * sdt);
-      this.moveAxis('z', this.vel.z * sdt);
-      this.moveAxis('y', this.vel.y * sdt);
+    const before = this.pos.clone();
+    const res = moveBody(world, this, dt, { noclip: spectator, sneak: this.sneaking });
+    if (this.flying && this.onGround && !spectator) this.flying = false;
+    if (res.hitX || res.hitZ) this.sprinting = false;
+
+    // Fall damage
+    if (this.onGround || this.inWater || this.flying) {
+      if (this.fallStart !== null && this.onGround && !this.inWater && !this.flying) {
+        const fall = this.fallStart - this.pos.y;
+        if (fall > 3.5 && this.usesHealth) this.damage(Math.floor(fall - 3), 'fall');
+      }
+      this.fallStart = null;
+    } else if (this.vel.y < 0) {
+      if (this.fallStart === null || this.pos.y > this.fallStart) this.fallStart = Math.max(this.pos.y, before.y);
+    } else {
+      this.fallStart = null;
     }
-    if (this.flying && this.onGround) this.flying = false;
 
-    if (this.onGround && len > 0) this.bobTime += dt * speed * 1.6;
+    const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
+    if (this.onGround && moved > 0.001) this.bobTime += moved * 2.2;
+    if (this.usesHealth) this.exhaustion += moved * (this.sprinting ? 0.1 : 0.01);
 
-    if (this.pos.y < -20) { this.pos.y = 100; this.vel.set(0, 0, 0); }
+    this.tickStats(dt);
+    if (this.pos.y < -40) {
+      if (this.usesHealth) this.damage(4, 'void');
+      else if (!spectator) { this.pos.y = 110; this.vel.set(0, 0, 0); }
+    }
+  }
+
+  tickStats(dt) {
+    this.hurtTime = Math.max(0, this.hurtTime - dt);
+    this.invuln = Math.max(0, this.invuln - dt);
+    if (!this.usesHealth) { this.air = 15; return; }
+
+    // Air
+    if (this.eyeInWater) {
+      this.air -= dt;
+      if (this.air <= 0) {
+        this.air = 0;
+        this.drownTimer += dt;
+        if (this.drownTimer >= 1) { this.drownTimer = 0; this.damage(2, 'drown'); }
+      }
+    } else this.air = Math.min(15, this.air + dt * 5);
+
+    // Hunger
+    while (this.exhaustion >= 4) {
+      this.exhaustion -= 4;
+      if (this.saturation > 0) this.saturation = Math.max(0, this.saturation - 1);
+      else this.food = Math.max(0, this.food - 1);
+    }
+    this.regenTimer += dt;
+    if (this.food >= 18 && this.health < 20 && !this.hardcoreNoRegen) {
+      if (this.regenTimer >= 4) { this.regenTimer = 0; this.heal(1); this.exhaustion += 6; }
+    } else if (this.food === 0) {
+      this.starveTimer += dt;
+      if (this.starveTimer >= 4) { this.starveTimer = 0; if (this.health > 1) this.damage(1, 'starve'); }
+    } else this.regenTimer = Math.min(this.regenTimer, 4);
+  }
+
+  serialize() {
+    return {
+      x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, pitch: this.pitch,
+      flying: this.flying, mode: this.mode, health: this.health, food: this.food,
+      saturation: this.saturation, air: this.air, spawn: this.spawn,
+      inv: this.inventory.serialize(), selected: this.selected,
+    };
+  }
+  load(d) {
+    if (!d) return;
+    this.pos.set(d.x ?? 0.5, d.y ?? 90, d.z ?? 0.5);
+    this.yaw = d.yaw || 0; this.pitch = d.pitch || 0;
+    if (d.mode) this.setMode(d.mode);
+    this.flying = !!d.flying && this.canFly;
+    this.health = d.health ?? 20; this.food = d.food ?? 20;
+    this.saturation = d.saturation ?? 5; this.air = d.air ?? 15;
+    this.spawn = d.spawn || null;
+    if (d.inv) this.inventory.load(d.inv);
+    this.selected = d.selected || 0;
   }
 }

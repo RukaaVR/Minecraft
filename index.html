@@ -4,65 +4,189 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WebCraft</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="game"></div>
 
-  <div id="underwater"></div>
-  <div id="crosshair"></div>
-  <div id="hotbar"></div>
-  <div id="toast"></div>
-  <pre id="debug"></pre>
-  <div id="loading">Generating terrain…</div>
-
-  <div id="inventory">
-    <div class="panel">
-      <h2>Blocks</h2>
-      <p class="hint">Click a block to put it in the selected hotbar slot.</p>
-      <div id="inv-grid"></div>
-      <button id="inv-close" class="btn">Done (E)</button>
+  <!-- In-game HUD -->
+  <div id="hud" hidden>
+    <div id="underwater" hidden></div>
+    <div id="hurt-overlay"></div>
+    <div id="crosshair"></div>
+    <pre id="debug" hidden></pre>
+    <div id="loading" hidden>Loading terrain…</div>
+    <div id="chat">
+      <div id="chat-lines"></div>
+      <div id="chat-bar" hidden><input id="chat-input" type="text" maxlength="256" autocomplete="off" aria-label="Chat message"></div>
+    </div>
+    <div id="toast"></div>
+    <div id="bottom-hud">
+      <div id="stats">
+        <div class="stat-row">
+          <div id="hearts" class="icons"></div>
+          <div id="air" class="icons right"></div>
+        </div>
+        <div class="stat-row">
+          <div></div>
+          <div id="food" class="icons right"></div>
+        </div>
+      </div>
+      <div id="hotbar"></div>
     </div>
   </div>
 
-  <div id="menu">
-    <div class="panel">
-      <h1>WebCraft</h1>
-      <p class="sub">A Minecraft-style voxel sandbox in your browser</p>
-      <button id="play" class="btn primary">Play</button>
-      <div class="row">
-        <input id="seed" type="text" placeholder="Seed (optional)" aria-label="World seed">
-        <button id="new-world" class="btn">New World</button>
-      </div>
-      <label class="setting">Render distance: <span id="rd-label">6</span> chunks
-        <input id="render-distance" type="range" min="2" max="14" step="1">
-      </label>
-      <label class="setting">Mouse sensitivity
-        <input id="sensitivity" type="range" min="0.2" max="3" step="0.1">
-      </label>
-      <div class="controls">
-        <div><kbd>WASD</kbd> move</div>
-        <div><kbd>Space</kbd> jump / swim</div>
-        <div><kbd>Shift</kbd> sprint</div>
-        <div><kbd>Space</kbd>×2 or <kbd>F</kbd> fly</div>
-        <div><kbd>C</kbd> fly down</div>
-        <div><kbd>Left click</kbd> break</div>
-        <div><kbd>Right click</kbd> place</div>
-        <div><kbd>Middle click</kbd> pick block</div>
-        <div><kbd>1–9</kbd> / wheel: hotbar</div>
-        <div><kbd>E</kbd> block inventory</div>
-        <div><kbd>F3</kbd> debug info</div>
-        <div><kbd>Esc</kbd> pause</div>
-      </div>
-      <p class="hint">Your world saves automatically in this browser.</p>
+  <!-- Container screens -->
+  <div id="gui" hidden>
+    <div id="gui-panel" class="gui-panel"></div>
+  </div>
+  <div id="cursor-item" class="slot" hidden></div>
+  <div id="tooltip" hidden></div>
+
+  <!-- Death -->
+  <div id="death" hidden>
+    <h2>You Died!</h2>
+    <p id="death-msg"></p>
+    <div class="buttons narrow">
+      <button id="btn-respawn" class="btn">Respawn</button>
+      <button id="btn-death-title" class="btn">Title Screen</button>
+    </div>
+  </div>
+
+  <!-- Menus -->
+  <div id="screen-title" class="screen">
+    <div class="logo-wrap">
+      <h1 class="logo">WEBCRAFT</h1>
+      <div id="splash"></div>
+    </div>
+    <div class="buttons">
+      <button id="btn-singleplayer" class="btn">Singleplayer</button>
+      <button id="btn-multiplayer" class="btn">Multiplayer</button>
+      <button id="btn-options" class="btn">Options…</button>
+    </div>
+    <div class="corner left">WebCraft 2.0</div>
+    <div class="corner right">Fan-made. Not an official Minecraft product.</div>
+  </div>
+
+  <div id="screen-worlds" class="screen" hidden>
+    <h2>Select World</h2>
+    <div id="world-list" class="list"></div>
+    <div class="buttons grid2">
+      <button id="btn-play-world" class="btn">Play Selected World</button>
+      <button id="btn-create-world" class="btn">Create New World</button>
+      <button id="btn-delete-world" class="btn">Delete</button>
+      <button id="btn-worlds-back" class="btn">Cancel</button>
+    </div>
+  </div>
+
+  <div id="screen-create" class="screen" hidden>
+    <h2>Create New World</h2>
+    <div class="form">
+      <label for="cw-name">World Name</label>
+      <input id="cw-name" type="text" maxlength="32" class="field">
+      <button id="btn-cw-mode" class="btn">Game Mode: Survival</button>
+      <p id="cw-mode-desc" class="desc"></p>
+      <button id="btn-cw-diff" class="btn">Difficulty: Normal</button>
+      <button id="btn-cw-cheats" class="btn">Allow Cheats: OFF</button>
+      <p class="desc">Cheats let you use commands like /gamemode, /time and /give.</p>
+      <label for="cw-seed">Seed for the World Generator</label>
+      <input id="cw-seed" type="text" maxlength="40" class="field" placeholder="Leave blank for a random seed">
+    </div>
+    <div class="buttons grid2">
+      <button id="btn-cw-create" class="btn">Create New World</button>
+      <button id="btn-cw-cancel" class="btn">Cancel</button>
+    </div>
+  </div>
+
+  <div id="screen-confirm" class="screen" hidden>
+    <h2>Are you sure you want to delete this world?</h2>
+    <p id="confirm-text" class="desc center"></p>
+    <div class="buttons grid2">
+      <button id="btn-confirm-yes" class="btn">Delete</button>
+      <button id="btn-confirm-no" class="btn">Cancel</button>
+    </div>
+  </div>
+
+  <div id="screen-multiplayer" class="screen" hidden>
+    <h2>Play Multiplayer</h2>
+    <div class="form">
+      <label for="mp-name">Your username</label>
+      <input id="mp-name" type="text" maxlength="16" class="field">
+    </div>
+    <h3>Friends' worlds</h3>
+    <div id="mp-list" class="list short"></div>
+    <div id="mp-code-row" class="form row" hidden>
+      <input id="mp-code" type="text" maxlength="12" class="field" placeholder="Join code" aria-label="Join code">
+      <button id="btn-mp-code" class="btn small">Join</button>
+    </div>
+    <h3>Direct Connect</h3>
+    <div class="form row">
+      <input id="mp-address" type="text" maxlength="120" class="field" placeholder="Server address, e.g. localhost:25565" aria-label="Server address">
+      <button id="btn-mp-direct" class="btn small">Join Server</button>
+    </div>
+    <p class="desc">Run your own server with <code>node server/server.js</code> (see README).</p>
+    <div class="buttons narrow">
+      <button id="btn-mp-back" class="btn">Back</button>
+    </div>
+  </div>
+
+  <div id="screen-joining" class="screen" hidden>
+    <h2 id="join-msg">Connecting…</h2>
+    <div class="buttons narrow"><button id="btn-join-cancel" class="btn">Cancel</button></div>
+  </div>
+
+  <div id="screen-disconnected" class="screen" hidden>
+    <h2>Connection Lost</h2>
+    <p id="dc-msg" class="desc center"></p>
+    <div class="buttons narrow"><button id="btn-dc-back" class="btn">Back to Title Screen</button></div>
+  </div>
+
+  <div id="screen-options" class="screen" hidden>
+    <h2>Options</h2>
+    <div class="form options">
+      <label class="slider"><span id="opt-fov-label">FOV</span><input id="opt-fov" type="range" min="30" max="110" step="1"></label>
+      <label class="slider"><span id="opt-rd-label">Render Distance</span><input id="opt-rd" type="range" min="2" max="12" step="1"></label>
+      <label class="slider"><span id="opt-sens-label">Sensitivity</span><input id="opt-sens" type="range" min="0.2" max="3" step="0.05"></label>
+      <label class="slider"><span id="opt-vol-label">Sound</span><input id="opt-vol" type="range" min="0" max="1" step="0.05"></label>
+      <label for="opt-name">Username</label>
+      <input id="opt-name" type="text" maxlength="16" class="field">
+    </div>
+    <div class="controls">
+      <div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> sneak · <kbd>W</kbd>×2 or <kbd>Ctrl</kbd> sprint</div>
+      <div><kbd>Left</kbd> mine / attack · <kbd>Right</kbd> place / use / eat · <kbd>Middle</kbd> pick block</div>
+      <div><kbd>E</kbd> inventory · <kbd>Q</kbd> drop · <kbd>1–9</kbd> hotbar · <kbd>T</kbd> chat · <kbd>/</kbd> command</div>
+      <div><kbd>F1</kbd> hide HUD · <kbd>F3</kbd> debug · <kbd>F5</kbd> camera · <kbd>Space</kbd>×2 fly (creative)</div>
+    </div>
+    <div class="buttons narrow"><button id="btn-opt-done" class="btn">Done</button></div>
+  </div>
+
+  <div id="screen-pause" class="screen" hidden>
+    <h2>Game Menu</h2>
+    <div class="buttons">
+      <button id="btn-resume" class="btn">Back to Game</button>
+      <button id="btn-pause-options" class="btn">Options…</button>
+      <button id="btn-open-friends" class="btn">Open to Friends</button>
+      <p id="pause-info" class="desc center"></p>
+      <button id="btn-quit" class="btn">Save and Quit to Title</button>
     </div>
   </div>
 
   <script src="lib/three.min.js"></script>
   <script src="js/noise.js"></script>
   <script src="js/blocks.js"></script>
+  <script src="js/items.js"></script>
   <script src="js/world.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/inventory.js"></script>
   <script src="js/player.js"></script>
+  <script src="js/models.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
