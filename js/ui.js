@@ -214,7 +214,7 @@ class UI {
     $('btn-quit').onclick = () => this.quitToTitle();
 
     // Death
-    $('btn-respawn').onclick = () => { this.game.respawn(); this.resume(); };
+    $('btn-respawn').onclick = () => { $('death').hidden = true; this.screen = 'none'; this.game.respawn(); this.resume(); };
     $('btn-death-title').onclick = () => this.quitToTitle();
 
     // Disconnected
@@ -710,6 +710,7 @@ class UI {
     if (gui.kind === 'inventory') {
       const top = row('inv-top');
       const preview = el('div', 'player-preview');
+      preview.appendChild(this.playerPreview());
       preview.appendChild(el('div', 'pp-label', this.game.settings.name));
       top.appendChild(preview);
       const c = el('div', 'inv-craft');
@@ -783,6 +784,25 @@ class UI {
       bottom.appendChild(trash);
     }
     this.renderGui();
+  }
+
+  // Flat front view of the player skin for the inventory screen.
+  playerPreview() {
+    const skin = skinTexture('player').tex.image;
+    const c = document.createElement('canvas');
+    const k = 3;
+    c.width = 16 * k; c.height = 32 * k;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const blit = (sx, sy, sw, sh, dx, dy) => ctx.drawImage(skin, sx, sy, sw, sh, dx * k, dy * k, sw * k, sh * k);
+    blit(8, 8, 8, 8, 4, 0);    // head
+    blit(20, 20, 8, 12, 4, 8); // body
+    blit(44, 20, 4, 12, 0, 8); // arms
+    blit(44, 20, 4, 12, 12, 8);
+    blit(4, 20, 4, 12, 4, 20); // legs
+    blit(4, 20, 4, 12, 8, 20);
+    c.className = 'pp-img';
+    return c;
   }
 
   craftResult() {

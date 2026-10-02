@@ -70,6 +70,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p === '/') p = '/index.html';
+  if (p === '/favicon.ico') { res.writeHead(204); res.end(); return; }
   const file = path.normalize(path.join(ROOT, p));
   if (!file.startsWith(ROOT) || file.startsWith(path.join(ROOT, 'server')) || file.includes(`${path.sep}.git`)) {
     res.writeHead(403); res.end('Forbidden'); return;

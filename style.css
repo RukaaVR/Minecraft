@@ -191,7 +191,9 @@ kbd { color: var(--ink); background: #222; border: 1px solid #555; padding: 0 4p
 .arrow-fill { position: absolute; left: 0; top: 11px; height: 8px; width: 0; background: #fff; z-index: 1; max-width: 26px; }
 .inv-top { gap: 18px; align-items: flex-start; }
 .player-preview { width: 100px; height: 120px; background: #000; box-shadow: inset 2px 2px 0 var(--slot-lo), inset -2px -2px 0 #fff; display: flex; align-items: flex-end; justify-content: center; }
-.pp-label { color: #ddd; font-size: 16px; padding: 4px; }
+.player-preview { flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding-top: 6px; }
+.pp-img { image-rendering: pixelated; height: 84px; width: auto; }
+.pp-label { color: #ddd; font-size: 16px; padding: 0 4px 2px; }
 .inv-craft { display: flex; flex-direction: column; gap: 4px; }
 .furnace-row { gap: 18px; padding-left: 60px; }
 .furnace-left { display: flex; flex-direction: column; align-items: center; gap: 4px; }
