@@ -124,6 +124,48 @@ function skinTexture(name) {
     paintBox(ctx, 0, 46, 4, 8, 4, (x, y) => (y < 4 ? [235, 235, 235] : [200, 190, 180]), rand, 12);
     px(ctx, 9, 10, [20, 20, 20]); px(ctx, 12, 10, [20, 20, 20]);
     px(ctx, 10, 12, [240, 170, 170], 2, 1);
+  } else if (name === 'skeleton') {
+    humanoid([215, 215, 210], [200, 200, 195], [190, 190, 185], (ctx) => {
+      px(ctx, 9, 11, [30, 30, 30], 2, 2); px(ctx, 13, 11, [30, 30, 30], 2, 2);
+      px(ctx, 10, 14, [60, 60, 60], 4, 1); px(ctx, 11, 13, [80, 80, 80], 2, 1);
+      // ribs
+      for (let y = 22; y < 30; y += 2) px(ctx, 20, y, [120, 120, 115], 8, 1);
+    });
+  } else if (name === 'piglin') {
+    humanoid([230, 150, 145], [110, 80, 50], [80, 60, 40], (ctx) => {
+      px(ctx, 8, 8, [120, 160, 90], 3, 8); // rotten patch
+      px(ctx, 9, 11, [250, 250, 250]); px(ctx, 10, 11, [20, 20, 20]);
+      px(ctx, 13, 11, [20, 20, 20]); px(ctx, 14, 11, [250, 250, 250]);
+      px(ctx, 10, 13, [200, 110, 110], 4, 2); px(ctx, 11, 14, [90, 40, 40], 2, 1);
+      px(ctx, 9, 15, [240, 240, 220]); px(ctx, 14, 15, [240, 240, 220]);
+    });
+  } else if (name.startsWith('villager')) {
+    const robe = { farmer: [120, 90, 50], librarian: [230, 230, 230], toolsmith: [70, 70, 70], butcher: [235, 235, 235], cleric: [130, 60, 150], armorer: [90, 90, 100] }[name.slice(9)] || [120, 90, 50];
+    c = makeSkinCanvas(64, 64); ctx = c.getContext('2d');
+    paintBox(ctx, 0, 0, 8, 10, 8, [185, 130, 100], rand, 12);          // head
+    paintBox(ctx, 24, 0, 2, 4, 2, [175, 115, 90], rand, 8);            // nose
+    paintBox(ctx, 16, 20, 8, 12, 6, robe, rand, 16);                   // body
+    paintBox(ctx, 0, 38, 8, 18, 6, robe, rand, 16);                    // robe skirt
+    paintBox(ctx, 40, 20, 8, 4, 4, robe, rand, 16);                    // crossed arms
+    paintBox(ctx, 0, 22, 4, 12, 4, [90, 70, 50], rand, 12);            // legs
+    px(ctx, 9, 13, [255, 255, 255]); px(ctx, 10, 13, [40, 110, 50]);
+    px(ctx, 13, 13, [40, 110, 50]); px(ctx, 14, 13, [255, 255, 255]);
+    px(ctx, 9, 12, [60, 40, 30], 6, 1); // unibrow
+    if (name === 'villager_butcher') px(ctx, 22, 26, [200, 40, 40], 8, 6);
+    if (name === 'villager_farmer') px(ctx, 8, 0, [210, 180, 90], 8, 8);
+  } else if (name === 'spider') {
+    c = makeSkinCanvas(64, 32); ctx = c.getContext('2d');
+    paintBox(ctx, 32, 4, 8, 8, 8, [50, 40, 35], rand, 14);   // head
+    paintBox(ctx, 0, 0, 6, 6, 6, [55, 45, 40], rand, 14);    // neck
+    paintBox(ctx, 0, 12, 10, 8, 12, [50, 40, 35], rand, 18); // abdomen
+    paintBox(ctx, 18, 0, 16, 2, 2, [45, 35, 30], rand, 10);  // leg
+    for (const [x, y] of [[41, 13], [43, 13], [45, 14], [46, 13], [42, 14]]) px(ctx, x, y, [200, 20, 20]);
+  } else if (name === 'ghast') {
+    c = makeSkinCanvas(64, 64); ctx = c.getContext('2d');
+    paintBox(ctx, 0, 0, 16, 16, 16, [240, 240, 240], rand, 10);
+    paintBox(ctx, 0, 40, 2, 9, 2, [235, 235, 235], rand, 8);
+    px(ctx, 19, 21, [60, 60, 60], 3, 2); px(ctx, 26, 21, [60, 60, 60], 3, 2);  // eyes (closed)
+    px(ctx, 21, 26, [60, 60, 60], 6, 2);                                    // mouth
   } else if (name === 'chicken') {
     c = makeSkinCanvas(64, 32); ctx = c.getContext('2d');
     paintBox(ctx, 0, 0, 4, 6, 3, [245, 245, 245], rand, 8);
@@ -148,10 +190,61 @@ function buildModel(type) {
   const inner = new THREE.Group(); // gets the yaw rotation
   root.add(inner);
   const skin = skinTexture(type === 'player' ? 'player' : type);
+  if (type.startsWith('villager')) type = 'villager';
   const mat = new THREE.MeshBasicMaterial({ map: skin.tex, transparent: false });
   const W = skin.w, H = skin.h;
   const parts = {};
-  if (type === 'player' || type === 'zombie') {
+  if (type === 'skeleton') {
+    parts.legL = part(inner, mat, skinBox(2, 12, 2, 0, 16, W, H), [-2, 12, 0], [0, -6, 0]);
+    parts.legR = part(inner, mat, skinBox(2, 12, 2, 0, 16, W, H), [2, 12, 0], [0, -6, 0]);
+    parts.body = part(inner, mat, skinBox(8, 12, 4, 16, 16, W, H), [0, 12, 0], [0, 6, 0]);
+    parts.armL = part(inner, mat, skinBox(2, 12, 2, 40, 16, W, H), [-5, 22, 0], [0, -4, 0]);
+    parts.armR = part(inner, mat, skinBox(2, 12, 2, 40, 16, W, H), [5, 22, 0], [0, -4, 0]);
+    parts.head = part(inner, mat, skinBox(8, 8, 8, 0, 0, W, H), [0, 24, 0], [0, 4, 0]);
+    parts.armL.rotation.x = -Math.PI / 2; parts.armR.rotation.x = -Math.PI / 2; parts.armL.rotation.y = 0.3;
+    return { root, inner, parts, mat, height: 1.95, width: 0.6, headY: 24 };
+  }
+  if (type === 'villager') {
+    parts.legL = part(inner, mat, skinBox(4, 12, 4, 0, 22, W, H), [-2, 12, 0], [0, -6, 0]);
+    parts.legR = part(inner, mat, skinBox(4, 12, 4, 0, 22, W, H), [2, 12, 0], [0, -6, 0]);
+    parts.body = part(inner, mat, skinBox(8, 12, 6, 16, 20, W, H), [0, 12, 0], [0, 6, 0]);
+    part(parts.body, mat, skinBox(8, 18, 6, 0, 38, W, H, 0.5), [0, -12, 0], [0, 10, 0]);
+    parts.arms = part(inner, mat, skinBox(8, 4, 4, 40, 20, W, H), [0, 20, 3], [0, -1, 1]);
+    parts.arms.rotation.x = -0.75;
+    parts.head = part(inner, mat, skinBox(8, 10, 8, 0, 0, W, H), [0, 24, 0], [0, 5, 0]);
+    const nose = new THREE.Mesh(skinBox(2, 4, 2, 24, 0, W, H), mat);
+    nose.position.set(0, 3 * MODEL_SCALE, 5 * MODEL_SCALE);
+    parts.head.add(nose);
+    return { root, inner, parts, mat, height: 1.95, width: 0.6, headY: 24 };
+  }
+  if (type === 'spider') {
+    parts.body = part(inner, mat, skinBox(10, 8, 12, 0, 12, W, H), [0, 9, -7], [0, 0, 0]);
+    part(inner, mat, skinBox(6, 6, 6, 0, 0, W, H), [0, 9, 0], [0, 0, 0]);
+    parts.head = part(inner, mat, skinBox(8, 8, 8, 32, 4, W, H), [0, 9, 3], [0, 0, 4]);
+    parts.spiderLegs = [];
+    for (let i = 0; i < 8; i++) {
+      const side = i < 4 ? -1 : 1, k = i % 4;
+      const leg = part(inner, mat, skinBox(16, 2, 2, 18, 0, W, H), [side * 4, 9, 2 - k * 2], [side * 8, 0, 0]);
+      leg.rotation.z = side * 0.6;
+      leg.rotation.y = (k - 1.5) * 0.35 * -side;
+      parts.spiderLegs.push(leg);
+    }
+    return { root, inner, parts, mat, height: 0.9, width: 1.4, headY: 9 };
+  }
+  if (type === 'ghast') {
+    parts.body = part(inner, mat, skinBox(16, 16, 16, 0, 0, W, H), [0, 32, 0], [0, 0, 0]);
+    parts.body.scale.set(4, 4, 4);
+    parts.tentacles = [];
+    for (let i = 0; i < 9; i++) {
+      const tx = ((i % 3) - 1) * 5, tz = (Math.floor(i / 3) - 1) * 5;
+      const t = part(inner, mat, skinBox(2, 9, 2, 0, 40, W, H), [tx * 4, -8 * 4 + 24, tz * 4], [0, -4.5, 0]);
+      t.scale.set(4, 4 + (i % 3), 4);
+      parts.tentacles.push(t);
+    }
+    parts.head = null;
+    return { root, inner, parts, mat, height: 4, width: 4, headY: 24 };
+  }
+  if (type === 'player' || type === 'zombie' || type === 'piglin') {
     parts.legL = part(inner, mat, skinBox(4, 12, 4, 0, 16, W, H), [-2, 12, 0], [0, -6, 0]);
     parts.legR = part(inner, mat, skinBox(4, 12, 4, 0, 16, W, H), [2, 12, 0], [0, -6, 0]);
     parts.body = part(inner, mat, skinBox(8, 12, 4, 16, 16, W, H), [0, 12, 0], [0, 6, 0]);
@@ -159,6 +252,7 @@ function buildModel(type) {
     parts.armR = part(inner, mat, skinBox(4, 12, 4, 40, 16, W, H), [6, 22, 0], [0, -4, 0]);
     parts.head = part(inner, mat, skinBox(8, 8, 8, 0, 0, W, H), [0, 24, 0], [0, 4, 0]);
     if (type === 'zombie') { parts.armL.rotation.x = -Math.PI / 2; parts.armR.rotation.x = -Math.PI / 2; }
+    if (type === 'piglin') parts.head.scale.set(1.25, 1, 1);
     return { root, inner, parts, mat, height: 1.8, width: 0.6, headY: 24 };
   }
   if (type === 'creeper') {
@@ -226,7 +320,11 @@ function animateModel(model, type, walkPhase, walkAmount, headYaw, headPitch, sw
     p.armR.rotation.x = -Math.PI / 2 - Math.sin(swing * Math.PI) * 0.8;
   }
   if (p.wingL) { p.wingL.rotation.z = -Math.abs(s) * 0.5; p.wingR.rotation.z = Math.abs(s) * 0.5; }
-  if (p.head) { p.head.rotation.y = headYaw; p.head.rotation.x = -headPitch; }
+  if (type === 'piglin') { p.armL.rotation.x = -s * 0.9; p.armR.rotation.x = s * 0.9 - Math.sin(swing * Math.PI) * 1.4; }
+  if (type === 'skeleton') { p.armR.rotation.x = -Math.PI / 2 - Math.sin(swing * Math.PI) * 0.3; }
+  if (p.spiderLegs) p.spiderLegs.forEach((l, i) => { l.rotation.x = Math.sin(walkPhase * 2 + i * 1.7) * walkAmount * 0.5; });
+  if (p.tentacles) p.tentacles.forEach((t, i) => { t.rotation.x = Math.sin(walkPhase * 0.3 + i) * 0.3; });
+  if (p.head && type !== 'spider') { p.head.rotation.y = headYaw; p.head.rotation.x = -headPitch; }
 }
 
 // Name tag sprite

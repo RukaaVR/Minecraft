@@ -3,7 +3,7 @@
 
 const TILE = 16;          // pixels per tile
 const ATLAS_COLS = 16;
-const ATLAS_ROWS = 8;
+const ATLAS_ROWS = 16;
 
 // Tile indices in the atlas
 const T = {
@@ -19,6 +19,11 @@ const T = {
   GLOWSTONE: 46, STONE_BRICKS: 47, IRON_BLOCK: 48, GOLD_BLOCK: 49,
   DIAMOND_BLOCK: 50, SANDSTONE_SIDE: 51, SANDSTONE_TOP: 52, WOOL_BLACK: 53,
   WOOL_GREEN: 54, PUMPKIN_TOP: 55, PUMPKIN_FACE: 56,
+  NETHERRACK: 128, SOUL_SAND: 129, QUARTZ_ORE: 130, NETHER_BRICKS: 131, LAVA: 132, PORTAL: 133,
+  FARMLAND_TOP: 134, WHEAT0: 135, /* 135..138 */ DOOR_TOP: 139, DOOR_BOTTOM: 140, BED_FOOT: 141,
+  BED_HEAD: 142, BED_SIDE: 143, HAY_TOP: 144, HAY_SIDE: 145, EMERALD_ORE: 146, EMERALD_BLOCK: 147,
+  PATH_TOP: 148, PATH_SIDE: 149, SAPLING: 150, MOSSY_COBBLE: 151, BED_SIDE_HEAD: 152,
+  ITEM2: 160, // second block of item sprites (see items.js)
   CRACK0: 64, // 10 stages: 64..73
   ITEM0: 80,  // item sprites start here (see items.js)
 };
@@ -33,6 +38,11 @@ const B = {
   DANDELION: 33, POPPY: 34, TORCH: 35, GLOWSTONE: 36, STONE_BRICKS: 37,
   IRON_BLOCK: 38, GOLD_BLOCK: 39, DIAMOND_BLOCK: 40, SANDSTONE: 41,
   WOOL_BLACK: 42, WOOL_GREEN: 43, FURNACE_LIT: 44,
+  NETHERRACK: 45, SOUL_SAND: 46, QUARTZ_ORE: 47, NETHER_BRICKS: 48, LAVA: 49, PORTAL_X: 50, PORTAL_Z: 51,
+  FARMLAND: 52, WHEAT0: 53, /* 53..60 = stages 0..7 */ DOOR_LOWER: 61, DOOR_UPPER: 62, BED_FOOT: 63,
+  BED_HEAD: 64, HAY: 65, EMERALD_ORE: 66, EMERALD_BLOCK: 67, PATH: 68, SAPLING: 69,
+  WATER1: 70, /* 70..76 = flowing water levels 1..7 */ WATER_FALL: 77, MOSSY_COBBLE: 78,
+  LAVA1: 80, /* 80..86 = flowing lava levels 1..7 */ LAVA_FALL: 87,
 };
 
 // Tool levels: wood/gold 0, stone 1, iron 2, diamond 3
@@ -57,6 +67,11 @@ function defBlock(id, name, tiles, o = {}) {
     needsSupport: !!o.needsSupport,
     inCreative: o.inCreative !== false,
     facing: !!o.facing,
+    height: o.height ?? 1,          // top of the block (cube model)
+    fluid: o.fluid || null,         // 'water' | 'lava'
+    flevel: o.flevel ?? 0,          // fluid level: 0 source, 1..7 flowing, 8 falling
+    translucent: !!o.translucent,   // rendered in the transparent pass
+    mat: 0,                         // shader material id (set below)
   };
 }
 const dropNone = () => [];
@@ -69,14 +84,14 @@ defBlock(B.PLANKS, 'Oak Planks', T.PLANKS, { hardness: 2, tool: 'axe', sound: 'w
 defBlock(B.LOG, 'Oak Log', [T.LOG_TOP, T.LOG_TOP, T.LOG_SIDE], { hardness: 2, tool: 'axe', sound: 'wood' });
 defBlock(B.LEAVES, 'Oak Leaves', T.LEAVES, {
   cutout: true, hardness: 0.2, sound: 'grass', lightCost: 1,
-  drops: (r) => (r() < 0.05 ? [[ITEM.APPLE, 1]] : r() < 0.06 ? [[ITEM.STICK, 1]] : []),
+  drops: (r) => { const v = r(); return v < 0.05 ? [[B.SAPLING, 1]] : v < 0.06 ? [[ITEM.APPLE, 1]] : v < 0.08 ? [[ITEM.STICK, 1]] : []; },
 });
 defBlock(B.SAND, 'Sand', T.SAND, { hardness: 0.5, tool: 'shovel', sound: 'sand', gravity: true });
-defBlock(B.GRAVEL, 'Gravel', T.GRAVEL, { hardness: 0.6, tool: 'shovel', sound: 'gravel', gravity: true });
+defBlock(B.GRAVEL, 'Gravel', T.GRAVEL, { hardness: 0.6, tool: 'shovel', sound: 'gravel', gravity: true, drops: (r) => (r() < 0.1 ? [[ITEM.FLINT, 1]] : [[B.GRAVEL, 1]]) });
 defBlock(B.GLASS, 'Glass', T.GLASS, { cutout: true, hardness: 0.3, sound: 'glass', drops: dropNone });
 defBlock(B.BRICK, 'Bricks', T.BRICK, { hardness: 2, tool: 'pickaxe', level: 0 });
 defBlock(B.BEDROCK, 'Bedrock', T.BEDROCK, { hardness: -1, inCreative: true });
-defBlock(B.WATER, 'Water', T.WATER, { solid: false, liquid: true, hardness: -1, replaceable: true, lightCost: 2, inCreative: false });
+defBlock(B.WATER, 'Water', T.WATER, { solid: false, liquid: true, hardness: -1, replaceable: true, lightCost: 2, inCreative: false, fluid: 'water' });
 defBlock(B.SNOW_GRASS, 'Snowy Grass', [T.SNOW, T.DIRT, T.SNOW_SIDE], { hardness: 0.6, tool: 'shovel', sound: 'grass', drops: () => [[B.DIRT, 1]] });
 defBlock(B.SNOW, 'Snow Block', T.SNOW, { hardness: 0.2, tool: 'shovel', sound: 'wool' });
 defBlock(B.COAL_ORE, 'Coal Ore', T.COAL, { hardness: 3, tool: 'pickaxe', level: 0, drops: () => [[ITEM.COAL, 1]] });
@@ -96,7 +111,7 @@ defBlock(B.CRAFTING_TABLE, 'Crafting Table', [T.CT_TOP, T.PLANKS, T.CT_SIDE, T.C
 defBlock(B.FURNACE, 'Furnace', [T.FURNACE_TOP, T.FURNACE_TOP, T.FURNACE_SIDE, T.FURNACE_SIDE, T.FURNACE_FRONT, T.FURNACE_SIDE], { hardness: 3.5, tool: 'pickaxe', level: 0, facing: true });
 defBlock(B.FURNACE_LIT, 'Furnace', [T.FURNACE_TOP, T.FURNACE_TOP, T.FURNACE_SIDE, T.FURNACE_SIDE, T.FURNACE_LIT, T.FURNACE_SIDE], { hardness: 3.5, tool: 'pickaxe', level: 0, facing: true, light: 13, inCreative: false, drops: () => [[B.FURNACE, 1]] });
 defBlock(B.CHEST, 'Chest', [T.CHEST_TOP, T.CHEST_TOP, T.CHEST_SIDE, T.CHEST_SIDE, T.CHEST_FRONT, T.CHEST_SIDE], { hardness: 2.5, tool: 'axe', sound: 'wood', facing: true });
-defBlock(B.TALL_GRASS, 'Grass', T.TALL_GRASS, { solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', replaceable: true, needsSupport: true, drops: dropNone });
+defBlock(B.TALL_GRASS, 'Grass', T.TALL_GRASS, { solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', replaceable: true, needsSupport: true, drops: (r) => (r() < 0.125 ? [[ITEM.SEEDS, 1]] : []) });
 defBlock(B.DANDELION, 'Dandelion', T.DANDELION, { solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', needsSupport: true });
 defBlock(B.POPPY, 'Poppy', T.POPPY, { solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', needsSupport: true });
 defBlock(B.TORCH, 'Torch', T.TORCH, { solid: false, cutout: true, model: 'torch', hardness: 0, sound: 'wood', light: 14, needsSupport: true });
@@ -109,16 +124,68 @@ defBlock(B.SANDSTONE, 'Sandstone', [T.SANDSTONE_TOP, T.SANDSTONE_TOP, T.SANDSTON
 defBlock(B.WOOL_BLACK, 'Black Wool', T.WOOL_BLACK, { hardness: 0.8, sound: 'wool' });
 defBlock(B.WOOL_GREEN, 'Green Wool', T.WOOL_GREEN, { hardness: 0.8, sound: 'wool' });
 
+// ---- Nether
+defBlock(B.NETHERRACK, 'Netherrack', T.NETHERRACK, { hardness: 0.4, tool: 'pickaxe', level: 0, sound: 'stone' });
+defBlock(B.SOUL_SAND, 'Soul Sand', T.SOUL_SAND, { hardness: 0.5, tool: 'shovel', sound: 'sand', height: 14 / 16 });
+defBlock(B.QUARTZ_ORE, 'Nether Quartz Ore', T.QUARTZ_ORE, { hardness: 3, tool: 'pickaxe', level: 0, drops: () => [[ITEM.QUARTZ, 1]] });
+defBlock(B.NETHER_BRICKS, 'Nether Bricks', T.NETHER_BRICKS, { hardness: 2, tool: 'pickaxe', level: 0 });
+defBlock(B.PORTAL_X, 'Nether Portal', T.PORTAL, { solid: false, model: 'pane', hardness: -1, light: 11, translucent: true, inCreative: false, drops: dropNone, sound: 'glass' });
+defBlock(B.PORTAL_Z, 'Nether Portal', T.PORTAL, { solid: false, model: 'pane', hardness: -1, light: 11, translucent: true, inCreative: false, drops: dropNone, sound: 'glass' });
+// ---- Fluids: source, 7 flowing levels, falling
+defBlock(B.LAVA, 'Lava', T.LAVA, { solid: false, liquid: false, fluid: 'lava', hardness: -1, replaceable: true, light: 15, inCreative: false });
+for (let l = 1; l <= 7; l++) {
+  defBlock(B.WATER1 + l - 1, 'Water', T.WATER, { solid: false, liquid: true, fluid: 'water', flevel: l, hardness: -1, replaceable: true, lightCost: 2, inCreative: false });
+  defBlock(B.LAVA1 + l - 1, 'Lava', T.LAVA, { solid: false, fluid: 'lava', flevel: l, hardness: -1, replaceable: true, light: 15, inCreative: false });
+}
+defBlock(B.WATER_FALL, 'Water', T.WATER, { solid: false, liquid: true, fluid: 'water', flevel: 8, hardness: -1, replaceable: true, lightCost: 2, inCreative: false });
+defBlock(B.LAVA_FALL, 'Lava', T.LAVA, { solid: false, fluid: 'lava', flevel: 8, hardness: -1, replaceable: true, light: 15, inCreative: false });
+// ---- Farming & villages
+defBlock(B.FARMLAND, 'Farmland', [T.FARMLAND_TOP, T.DIRT, T.DIRT], { hardness: 0.6, tool: 'shovel', sound: 'gravel', height: 15 / 16, drops: () => [[B.DIRT, 1]] });
+for (let st = 0; st < 8; st++) {
+  defBlock(B.WHEAT0 + st, 'Wheat Crops', T.WHEAT0 + Math.floor(st / 2), {
+    solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', needsSupport: true, inCreative: false,
+    drops: (r) => (st === 7 ? [[ITEM.WHEAT, 1], [ITEM.SEEDS, Math.floor(r() * 4)]] : [[ITEM.SEEDS, 1]]),
+  });
+}
+defBlock(B.DOOR_LOWER, 'Oak Door', T.DOOR_BOTTOM, { model: 'door', cutout: true, hardness: 3, tool: 'axe', sound: 'wood', inCreative: false, drops: () => [[ITEM.DOOR, 1]] });
+defBlock(B.DOOR_UPPER, 'Oak Door', T.DOOR_TOP, { model: 'door', cutout: true, hardness: 3, tool: 'axe', sound: 'wood', inCreative: false, drops: dropNone });
+defBlock(B.BED_FOOT, 'Red Bed', [T.BED_FOOT, T.PLANKS, T.BED_SIDE], { model: 'bed', height: 9 / 16, hardness: 0.2, sound: 'wool', inCreative: false, drops: () => [[ITEM.BED, 1]] });
+defBlock(B.BED_HEAD, 'Red Bed', [T.BED_HEAD, T.PLANKS, T.BED_SIDE_HEAD], { model: 'bed', height: 9 / 16, hardness: 0.2, sound: 'wool', inCreative: false, drops: dropNone });
+defBlock(B.HAY, 'Hay Bale', [T.HAY_TOP, T.HAY_TOP, T.HAY_SIDE], { hardness: 0.5, sound: 'grass' });
+defBlock(B.EMERALD_ORE, 'Emerald Ore', T.EMERALD_ORE, { hardness: 3, tool: 'pickaxe', level: 2, drops: () => [[ITEM.EMERALD, 1]] });
+defBlock(B.EMERALD_BLOCK, 'Block of Emerald', T.EMERALD_BLOCK, { hardness: 5, tool: 'pickaxe', level: 2 });
+defBlock(B.PATH, 'Dirt Path', [T.PATH_TOP, T.DIRT, T.PATH_SIDE], { hardness: 0.65, tool: 'shovel', sound: 'gravel', height: 15 / 16, drops: () => [[B.DIRT, 1]] });
+defBlock(B.SAPLING, 'Oak Sapling', T.SAPLING, { solid: false, cutout: true, model: 'cross', hardness: 0, sound: 'grass', needsSupport: true });
+defBlock(B.MOSSY_COBBLE, 'Mossy Cobblestone', T.MOSSY_COBBLE, { hardness: 2, tool: 'pickaxe', level: 0 });
+
 const NUM_BLOCKS = BLOCKS.length;
 
 // Lookup tables used by the mesher / lighting (fast typed arrays).
 const OPAQUE = new Uint8Array(256);
 const LIGHT_PASS = new Uint8Array(256); // 0 = blocks light, else 1 + extra cost
 const EMIT = new Uint8Array(256);
+const FLUID = new Uint8Array(256); // 0 none, 1 water, 2 lava
 for (const b of BLOCKS) {
-  OPAQUE[b.id] = (b.id !== B.AIR && !b.cutout && !b.liquid && b.model === 'cube') ? 1 : 0;
+  if (!b) continue;
+  OPAQUE[b.id] = (b.id !== B.AIR && !b.cutout && !b.liquid && !b.fluid && !b.translucent && b.model === 'cube' && b.height === 1) ? 1 : 0;
   LIGHT_PASS[b.id] = OPAQUE[b.id] ? 0 : 1 + b.lightCost;
   EMIT[b.id] = b.light;
+  FLUID[b.id] = b.fluid === 'water' ? 1 : b.fluid === 'lava' ? 2 : 0;
+  // Material ids for the shaders (see halcyon_glsl.js)
+  if (b.id === B.LEAVES) b.mat = 2;
+  else if (b.model === 'cross') b.mat = 1;
+  else if (b.fluid === 'lava' || b.id === B.GLOWSTONE || b.id === B.TORCH) b.mat = 4;
+  else if (b.id === B.GRASS) b.mat = 6;
+  else if (b.fluid === 'water') b.mat = 10;
+  else if (b.model === 'pane') b.mat = 12;
+}
+function isWater(id) { return FLUID[id] === 1; }
+function isLava(id) { return FLUID[id] === 2; }
+// Fluid surface height (0..1) for a fluid block
+function fluidHeight(id) {
+  const l = BLOCKS[id].flevel;
+  if (l >= 8) return 1;
+  return 0.875 * (8 - l) / 8 + (l === 0 ? 0 : 0.02);
 }
 
 function isOpaque(id) { return OPAQUE[id] === 1; }
@@ -128,6 +195,10 @@ function isSolid(id) { return BLOCKS[id] ? BLOCKS[id].solid : false; }
 // facing: 0..3 = direction the front points (0:+z, 1:-x, 2:-z, 3:+x)
 function faceTile(id, face, facing = 0) {
   const t = BLOCKS[id].tiles;
+  if (t.length === 3 && BLOCKS[id].model === 'bed') {
+    // bed: top tile rotated by facing is handled in the mesher; sides use the side tile
+    return face === 3 ? t[0] : face === 2 ? t[1] : t[2];
+  }
   if (face === 3) return t[0];
   if (face === 2) return t[1];
   if (t.length === 3) return t[2];
@@ -451,6 +522,7 @@ function buildAtlas() {
   }
 
   paintItems(painter, vary, clear);
+  paintExtraTiles(painter, vary, clear, { fill, speckle, stoneBase, dirtLike, planksLike, cobbleLike, copyTile });
 
   ctx.putImageData(img, 0, 0);
   return canvas;

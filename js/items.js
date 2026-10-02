@@ -6,6 +6,10 @@ const ITEM = {
   DIAMOND: 261, APPLE: 262, PORK_RAW: 263, PORK_COOKED: 264, BEEF_RAW: 265,
   BEEF_COOKED: 266, CHICKEN_RAW: 267, CHICKEN_COOKED: 268, ROTTEN_FLESH: 269,
   GUNPOWDER: 270, LEATHER: 271, FLINT_STEEL: 272, FEATHER: 273, BREAD: 274,
+  SEEDS: 275, WHEAT: 276, EMERALD: 277, QUARTZ: 278, BUCKET: 279, WATER_BUCKET: 280, LAVA_BUCKET: 281,
+  BOW: 282, ARROW: 283, STRING: 284, BONE: 285, FLINT: 286, GOLD_NUGGET: 287, DOOR: 288, BED: 289,
+  BONE_MEAL: 290, ROTTEN_GOLD: 291,
+  // hoes: 330 + material; armor: 340 + material*4 + piece
   // tools: 300 + material*4 + type
 };
 const TOOL_MATERIALS = [
@@ -22,6 +26,18 @@ const TOOL_TYPES = [
   { key: 'sword', name: 'Sword', baseDmg: 4 },
 ];
 function toolId(mat, type) { return 300 + mat * 4 + type; }
+function hoeId(mat) { return 330 + mat; }
+const ARMOR_MATERIALS = [
+  { key: 'leather', name: 'Leather', points: [1, 3, 2, 1], dur: 5, color: [150, 90, 50] },
+  { key: 'iron', name: 'Iron', points: [2, 6, 5, 2], dur: 15, color: [215, 215, 215] },
+  { key: 'golden', name: 'Golden', points: [2, 5, 3, 1], dur: 7, color: [245, 210, 60] },
+  { key: 'diamond', name: 'Diamond', points: [3, 8, 6, 3], dur: 33, color: [100, 230, 220] },
+];
+const ARMOR_PIECES = [
+  { key: 'helmet', name: 'Helmet', mult: 11 }, { key: 'chestplate', name: 'Chestplate', mult: 16 },
+  { key: 'leggings', name: 'Leggings', mult: 15 }, { key: 'boots', name: 'Boots', mult: 13 },
+];
+function armorId(mat, piece) { return 340 + mat * 4 + piece; }
 
 // ITEMS[id] for every item id, including blocks
 const ITEMS = {};
@@ -53,6 +69,30 @@ TOOL_MATERIALS.forEach((m, mi) => TOOL_TYPES.forEach((t, ti) => {
     stack: 1,
     tool: { type: t.key, level: m.level, speed: m.speed, uses: m.uses, damage: t.baseDmg + m.dmg },
     fuel: mi === 0 ? 10 : 0,
+  });
+}));
+defItem(ITEM.SEEDS, 'Wheat Seeds', T.ITEM2 + 0, { places: B.WHEAT0 });
+defItem(ITEM.WHEAT, 'Wheat', T.ITEM2 + 1);
+defItem(ITEM.EMERALD, 'Emerald', T.ITEM2 + 2);
+defItem(ITEM.QUARTZ, 'Nether Quartz', T.ITEM2 + 3);
+defItem(ITEM.BUCKET, 'Bucket', T.ITEM2 + 4, { stack: 16 });
+defItem(ITEM.WATER_BUCKET, 'Water Bucket', T.ITEM2 + 5, { stack: 1 });
+defItem(ITEM.LAVA_BUCKET, 'Lava Bucket', T.ITEM2 + 6, { stack: 1, fuel: 1000 });
+defItem(ITEM.BOW, 'Bow', T.ITEM2 + 12, { stack: 1, tool: { type: 'bow', level: 0, speed: 1, uses: 384, damage: 1 } });
+defItem(ITEM.ARROW, 'Arrow', T.ITEM2 + 13);
+defItem(ITEM.STRING, 'String', T.ITEM2 + 14);
+defItem(ITEM.BONE, 'Bone', T.ITEM2 + 15);
+defItem(ITEM.FLINT, 'Flint', T.ITEM2 + 16);
+defItem(ITEM.GOLD_NUGGET, 'Gold Nugget', T.ITEM2 + 17);
+defItem(ITEM.DOOR, 'Oak Door', T.ITEM2 + 34, { places: B.DOOR_LOWER });
+defItem(ITEM.BED, 'Red Bed', T.ITEM2 + 35, { stack: 1, places: B.BED_FOOT });
+defItem(ITEM.BONE_MEAL, 'Bone Meal', T.ITEM2 + 36);
+TOOL_MATERIALS.forEach((m, mi) => defItem(hoeId(mi), `${m.name} Hoe`, T.ITEM2 + 7 + mi, {
+  stack: 1, tool: { type: 'hoe', level: m.level, speed: m.speed, uses: m.uses, damage: 1 }, fuel: mi === 0 ? 10 : 0,
+}));
+ARMOR_MATERIALS.forEach((m, mi) => ARMOR_PIECES.forEach((pc, pi) => {
+  defItem(armorId(mi, pi), `${m.name === 'Leather' ? 'Leather' : m.name} ${pi === 0 && mi === 0 ? 'Cap' : pi === 1 && mi === 0 ? 'Tunic' : pi === 2 && mi === 0 ? 'Pants' : pc.name}`, T.ITEM2 + 18 + mi * 4 + pi, {
+    stack: 1, armor: { slot: pi, points: m.points[pi], uses: m.dur * pc.mult, mat: mi },
   });
 }));
 for (const b of BLOCKS) {
@@ -96,7 +136,23 @@ shaped(['III', 'III', 'III'], { I: ITEM.DIAMOND }, B.DIAMOND_BLOCK);
 shapeless([B.IRON_BLOCK], ITEM.IRON_INGOT, 9);
 shapeless([B.GOLD_BLOCK], ITEM.GOLD_INGOT, 9);
 shapeless([B.DIAMOND_BLOCK], ITEM.DIAMOND, 9);
-shapeless([ITEM.IRON_INGOT, B.GRAVEL], ITEM.FLINT_STEEL);
+shapeless([ITEM.IRON_INGOT, ITEM.FLINT], ITEM.FLINT_STEEL);
+shaped(['WWW'], { W: ITEM.WHEAT }, ITEM.BREAD);
+shaped(['WWW', 'WWW', 'WWW'], { W: ITEM.WHEAT }, B.HAY);
+shapeless([B.HAY], ITEM.WHEAT, 9);
+shaped(['I I', ' I '], { I: ITEM.IRON_INGOT }, ITEM.BUCKET);
+shaped([' SX', 'S X', ' SX'], { S: ITEM.STICK, X: ITEM.STRING }, ITEM.BOW);
+shaped(['F', 'S', 'E'], { F: ITEM.FLINT, S: ITEM.STICK, E: ITEM.FEATHER }, ITEM.ARROW, 4);
+shaped(['PP', 'PP', 'PP'], { P: B.PLANKS }, ITEM.DOOR, 3);
+shaped(['WWW', 'PPP'], { W: B.WOOL_WHITE, P: B.PLANKS }, ITEM.BED);
+shaped(['EEE', 'EEE', 'EEE'], { E: ITEM.EMERALD }, B.EMERALD_BLOCK);
+shapeless([B.EMERALD_BLOCK], ITEM.EMERALD, 9);
+shapeless([ITEM.BONE], ITEM.BONE_MEAL, 3);
+shaped(['NNN', 'NNN', 'NNN'], { N: ITEM.GOLD_NUGGET }, ITEM.GOLD_INGOT);
+shapeless([ITEM.GOLD_INGOT], ITEM.GOLD_NUGGET, 9);
+shaped(['SS', 'SS'], { S: ITEM.STRING }, B.WOOL_WHITE);
+shapeless([B.COBBLE, B.LEAVES], B.MOSSY_COBBLE);
+shaped(['QQ', 'QQ'], { Q: ITEM.QUARTZ }, B.NETHER_BRICKS);
 shapeless([B.WOOL_WHITE, ITEM.COAL], B.WOOL_BLACK);
 shapeless([B.WOOL_WHITE, B.DANDELION], B.WOOL_YELLOW);
 shapeless([B.WOOL_WHITE, B.POPPY], B.WOOL_RED);
@@ -104,6 +160,13 @@ shapeless([B.WOOL_WHITE, B.CACTUS], B.WOOL_GREEN);
 shaped(['FF', 'FF'], { F: ITEM.FEATHER }, B.WOOL_WHITE);
 shaped(['GGG', 'GGG', 'GGG'], { G: B.TORCH }, B.GLOWSTONE);
 const TOOL_HEADS = [B.PLANKS, B.COBBLE, ITEM.IRON_INGOT, ITEM.GOLD_INGOT, ITEM.DIAMOND];
+TOOL_HEADS.forEach((m, mi) => shaped(['MM', ' S', ' S'], { M: m, S: ITEM.STICK }, hoeId(mi)));
+[ITEM.LEATHER, ITEM.IRON_INGOT, ITEM.GOLD_INGOT, ITEM.DIAMOND].forEach((m, mi) => {
+  shaped(['MMM', 'M M'], { M: m }, armorId(mi, 0));
+  shaped(['M M', 'MMM', 'MMM'], { M: m }, armorId(mi, 1));
+  shaped(['MMM', 'M M', 'M M'], { M: m }, armorId(mi, 2));
+  shaped(['M M', 'M M'], { M: m }, armorId(mi, 3));
+});
 TOOL_HEADS.forEach((m, mi) => {
   shaped(['MMM', ' S ', ' S '], { M: m, S: ITEM.STICK }, toolId(mi, 0));
   shaped(['MM', 'MS', ' S'], { M: m, S: ITEM.STICK }, toolId(mi, 1));
@@ -167,6 +230,10 @@ const SMELTING = {
   [ITEM.BEEF_RAW]: ITEM.BEEF_COOKED,
   [ITEM.CHICKEN_RAW]: ITEM.CHICKEN_COOKED,
   [B.STONE]: B.STONE_BRICKS,
+  [B.NETHERRACK]: B.NETHER_BRICKS,
+  [B.QUARTZ_ORE]: ITEM.QUARTZ,
+  [B.EMERALD_ORE]: ITEM.EMERALD,
+  [B.DIAMOND_ORE]: ITEM.DIAMOND,
 };
 const SMELT_TIME = 10; // seconds per item (Minecraft: 200 ticks)
 

@@ -89,7 +89,7 @@ class WSTransport {
 function encodeBlocks(list) { return list.map((b) => b.join(',')).join(';'); }
 function decodeBlocks(s) {
   if (typeof s !== 'string' || !s) return [];
-  return s.split(';').map((t) => t.split(',').map(Number)).filter((a) => a.length === 4 && a.every(Number.isFinite));
+  return s.split(';').map((t) => t.split(',').map(Number)).filter((a) => (a.length === 4 || a.length === 5) && a.every(Number.isFinite));
 }
 // Split into parts that fit the room's 4 KiB message limit.
 function chunkBlocks(list, maxBytes = 3400) {
@@ -210,8 +210,13 @@ class Net {
   // Host side: answer a joiner with the world state.
   sendWorldTo(peer, welcome) {
     this.send('welcome', Object.assign({ to: peer }, welcome));
-    const parts = chunkBlocks(this.game.world.editList());
-    const datas = [...this.game.world.blockData.entries()];
+    const all = [], datas = [];
+    this.game.worlds.forEach((w, dim) => {
+      if (!w) return;
+      for (const e of w.editList()) all.push(dim ? [...e, dim] : e);
+      for (const [k, v] of w.blockData) datas.push([k, v, dim]);
+    });
+    const parts = chunkBlocks(all);
     let i = 0;
     const total = parts.length;
     const tick = () => {
@@ -222,9 +227,9 @@ class Net {
         setTimeout(tick, 120);
       } else {
         if (!total) this.send('edits', { to: peer, part: 0, total: 0, d: '' });
-        datas.forEach(([k, v], j) => {
+        datas.forEach(([k, v, dim], j) => {
           const [x, y, z] = k.split(',').map(Number);
-          setTimeout(() => this.send('bdata', { to: peer, x, y, z, d: v }), j * 60);
+          setTimeout(() => this.send('bdata', { to: peer, x, y, z, d: v, w: dim }), j * 60);
         });
       }
     };

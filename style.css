@@ -212,3 +212,19 @@ kbd { color: var(--ink); background: #222; border: 1px solid #555; padding: 0 4p
   .furnace-row { padding-left: 0; }
   .player-preview { display: none; }
 }
+
+/* ---------- overlays, trading, armor ---------- */
+#portal-overlay { position: fixed; inset: 0; opacity: 0; background: radial-gradient(circle, rgba(170, 60, 255, 0.35), rgba(110, 20, 200, 0.75)); transition: opacity 0.2s; }
+#fire-overlay { position: fixed; left: 0; right: 0; bottom: 0; height: 32vh; background: linear-gradient(transparent, rgba(255, 120, 20, 0.55)); animation: flicker 0.25s infinite alternate; }
+@keyframes flicker { from { opacity: 0.75; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #fire-overlay { animation: none; } }
+#sleep-overlay { position: fixed; inset: 0; background: #000; opacity: 0; transition: opacity 0.9s; pointer-events: none; z-index: 40; }
+.trade-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; }
+.trade-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; background: #b0b0b0; border: 2px solid #555; cursor: pointer; font: inherit; }
+.trade-row:hover { background: #d0d0ff; }
+.trade-row.disabled { opacity: 0.55; }
+.slot.small { width: 30px; height: 30px; }
+.slot.small img { width: 24px; height: 24px; }
+.slot.blank { background: transparent; box-shadow: none; }
+.armor-col { display: flex; flex-direction: column; gap: 0; }
+.armor-slot:empty::after { content: attr(data-piece); font-size: 11px; color: #5a5a5a; }

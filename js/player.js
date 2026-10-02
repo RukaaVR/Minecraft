@@ -43,6 +43,15 @@ class Player {
     this.dead = false;
     this.spawn = null;
     this.inventory = new Inventory(36);
+    this.armor = new Inventory(4); // helmet, chestplate, leggings, boots
+    this.inLava = false;
+    this.eyeInLava = false;
+    this.fireTime = 0;
+    this.fireTick = 0;
+    this.lavaTick = 0;
+    this.portalTime = 0;
+    this.portalCooldown = 0;
+    this.sleeping = false;
     this.selected = 0;
     this.onDamage = null; // callback(amount, cause)
   }
@@ -88,9 +97,30 @@ class Player {
       this.pos.z + w > z && this.pos.z - w < z + 1;
   }
 
+  get armorPoints() {
+    let pts = 0;
+    for (const s of this.armor.slots) if (s && ITEMS[s.id].armor) pts += ITEMS[s.id].armor.points;
+    return pts;
+  }
+
   damage(amount, cause, knock) {
     if (!this.usesHealth || this.dead || amount <= 0) return false;
-    if (this.invuln > 0 && cause !== 'starve' && cause !== 'drown' && cause !== 'void') return false;
+    if (this.invuln > 0 && cause !== 'starve' && cause !== 'drown' && cause !== 'void' && cause !== 'fire') return false;
+    // Armor (Minecraft's formula, toughness 0); fall, drowning, starving and the void bypass it
+    if (!['fall', 'drown', 'starve', 'void', 'kill'].includes(cause)) {
+      const pts = this.armorPoints;
+      if (pts > 0) {
+        const reduction = Math.min(20, Math.max(pts / 5, pts - amount / 2)) / 25;
+        amount *= 1 - reduction;
+        const wear = Math.max(1, Math.floor(amount / 4));
+        this.armor.slots.forEach((s, i) => {
+          if (!s) return;
+          s.dmg = (s.dmg || 0) + wear;
+          if (s.dmg >= ITEMS[s.id].armor.uses) { this.armor.slots[i] = null; Sound.noise(2000, 2, 0.3, 0.5); }
+        });
+        this.armor.changed();
+      }
+    }
     this.health = Math.max(0, this.health - amount);
     this.hurtTime = 0.4;
     this.invuln = 0.5;
@@ -110,10 +140,16 @@ class Player {
   update(dt) {
     const k = this.keys;
     const world = this.world;
-    const feet = world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + 0.3), Math.floor(this.pos.z));
-    this.inWater = feet === B.WATER || boxInBlock(world, this.pos, this.w, 0.9, B.WATER);
+    this.inWater = boxInBlock(world, this.pos, this.w, 0.9, isWater);
+    this.inLava = boxInBlock(world, this.pos, this.w, 0.9, isLava);
     const eye = this.eye;
-    this.eyeInWater = world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)) === B.WATER;
+    const eyeBlock = world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z));
+    const eyeFrac = eye.y - Math.floor(eye.y);
+    this.eyeInWater = isWater(eyeBlock) && eyeFrac < fluidHeight(eyeBlock) + 0.05;
+    this.eyeInLava = isLava(eyeBlock);
+    const under = world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y - 0.05), Math.floor(this.pos.z));
+    this.onSoulSand = under === B.SOUL_SAND;
+    this.inPortal = boxInBlock(world, this.pos, 0.3, 1.0, (b) => b === B.PORTAL_X || b === B.PORTAL_Z);
     const spectator = this.mode === 'spectator';
 
     this.sneaking = !spectator && (k.has('ShiftLeft') || k.has('ShiftRight')) && !this.flying;
@@ -133,6 +169,8 @@ class Player {
     if (this.flying) speed = this.sprinting ? 21 : 10.9;
     else speed = this.sneaking ? 1.3 : this.sprinting ? 5.6 : 4.3;
     if (this.inWater && !this.flying) speed *= 0.5;
+    if (this.inLava && !this.flying) speed *= 0.3;
+    if (this.onSoulSand && !this.flying) speed *= 0.45;
 
     const accel = this.onGround || this.flying ? 14 : 3;
     const t = Math.min(1, accel * dt);
@@ -144,10 +182,10 @@ class Player {
       if (k.has('Space')) vy += 1;
       if (k.has('ShiftLeft') || k.has('ShiftRight')) vy -= 1;
       this.vel.y += (vy * 8 - this.vel.y) * Math.min(1, 12 * dt);
-    } else if (this.inWater) {
-      this.vel.y -= 10 * dt;
-      if (k.has('Space')) this.vel.y += 24 * dt;
-      this.vel.y = Math.max(-3, Math.min(3.5, this.vel.y));
+    } else if (this.inWater || this.inLava) {
+      this.vel.y -= (this.inLava ? 6 : 10) * dt;
+      if (k.has('Space')) this.vel.y += (this.inLava ? 14 : 24) * dt;
+      this.vel.y = Math.max(-3, Math.min(this.inLava ? 2 : 3.5, this.vel.y));
     } else {
       this.vel.y -= 32 * dt;
       if (k.has('Space') && this.onGround) {
@@ -164,7 +202,7 @@ class Player {
     if (res.hitX || res.hitZ) this.sprinting = false;
 
     // Fall damage
-    if (this.onGround || this.inWater || this.flying) {
+    if (this.onGround || this.inWater || this.inLava || this.flying) {
       if (this.fallStart !== null && this.onGround && !this.inWater && !this.flying) {
         const fall = this.fallStart - this.pos.y;
         if (fall > 3.5 && this.usesHealth) this.damage(Math.floor(fall - 3), 'fall');
@@ -190,7 +228,21 @@ class Player {
   tickStats(dt) {
     this.hurtTime = Math.max(0, this.hurtTime - dt);
     this.invuln = Math.max(0, this.invuln - dt);
-    if (!this.usesHealth) { this.air = 15; return; }
+    this.portalCooldown = Math.max(0, this.portalCooldown - dt);
+    if (!this.usesHealth) { this.air = 15; this.fireTime = 0; return; }
+
+    // Lava and fire
+    if (this.inLava) {
+      this.fireTime = 8;
+      this.lavaTick += dt;
+      if (this.lavaTick >= 0.5) { this.lavaTick = 0; this.damage(4, 'lava'); }
+    }
+    if (this.inWater) this.fireTime = 0;
+    if (this.fireTime > 0) {
+      this.fireTime -= dt;
+      this.fireTick += dt;
+      if (this.fireTick >= 1) { this.fireTick = 0; if (!this.inLava) this.damage(1, 'fire'); }
+    }
 
     // Air
     if (this.eyeInWater) {
@@ -222,7 +274,7 @@ class Player {
       x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, pitch: this.pitch,
       flying: this.flying, mode: this.mode, health: this.health, food: this.food,
       saturation: this.saturation, air: this.air, spawn: this.spawn,
-      inv: this.inventory.serialize(), selected: this.selected,
+      inv: this.inventory.serialize(), selected: this.selected, armor: this.armor.serialize(),
     };
   }
   load(d) {
@@ -235,6 +287,7 @@ class Player {
     this.saturation = d.saturation ?? 5; this.air = d.air ?? 15;
     this.spawn = d.spawn || null;
     if (d.inv) this.inventory.load(d.inv);
+    if (d.armor) this.armor.load(d.armor);
     this.selected = d.selected || 0;
   }
 }

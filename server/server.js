@@ -58,9 +58,10 @@ function save() {
 }
 setInterval(save, 30000);
 
-function setBlock(x, y, z, id) {
+function setBlock(x, y, z, id, w) {
   if (![x, y, z, id].every(Number.isInteger) || y < 0 || y > 255 || id < 0 || id > 255) return false;
-  world.edits[`${x},${y},${z}`] = id;
+  w = w === 1 ? 1 : 0;
+  world.edits[w ? `${x},${y},${z},${w}` : `${x},${y},${z}`] = id;
   dirty = true;
   return true;
 }
@@ -124,11 +125,15 @@ wss.on('connection', (ws, req) => {
           console.log(`${name} joined the game`);
         }
         send(ws, 'welcome', { seed: world.seed, mode: world.mode, difficulty: world.difficulty, time: world.time, name: world.name, spawn: world.spawn || null });
-        const list = Object.entries(world.edits).map(([k, v]) => k + ',' + v).join(';');
+        // stored keys are "x,y,z" (overworld) or "x,y,z,w"; the wire format is "x,y,z,id[,w]"
+        const list = Object.entries(world.edits).map(([k, v]) => {
+          const p = k.split(',');
+          return p.length === 4 ? `${p[0]},${p[1]},${p[2]},${v},${p[3]}` : `${k},${v}`;
+        }).join(';');
         send(ws, 'edits', { part: 0, total: 1, d: list });
         for (const [k, v] of Object.entries(world.data)) {
-          const [x, y, z] = k.split(',').map(Number);
-          send(ws, 'bdata', { x, y, z, d: v });
+          const [x, y, z, w] = k.split(',').map(Number);
+          send(ws, 'bdata', { x, y, z, d: v, w: w || 0 });
         }
         break;
       }
@@ -137,24 +142,25 @@ wss.on('connection', (ws, req) => {
         if (id === hostId && typeof d.t === 'number') world.time = d.t;
         break;
       case 'block':
-        if (setBlock(d.x, d.y, d.z, d.id)) {
-          if (typeof d.f === 'number') { world.data[`${d.x},${d.y},${d.z}`] = Object.assign({}, world.data[`${d.x},${d.y},${d.z}`], { facing: d.f & 3 }); }
-          if (d.id === 0) delete world.data[`${d.x},${d.y},${d.z}`];
+        if (setBlock(d.x, d.y, d.z, d.id, d.w)) {
+          const dk = d.w === 1 ? `${d.x},${d.y},${d.z},1` : `${d.x},${d.y},${d.z}`;
+          if (typeof d.f === 'number') { world.data[dk] = Object.assign({}, world.data[dk], { facing: d.f & 3 }); }
+          if (d.id === 0) delete world.data[dk];
           broadcast('block', d, id, id);
         }
         break;
       case 'blocks':
         if (typeof d.d === 'string') {
           for (const part of d.d.split(';')) {
-            const [x, y, z, b] = part.split(',').map(Number);
-            setBlock(x, y, z, b);
+            const [x, y, z, b, w] = part.split(',').map(Number);
+            setBlock(x, y, z, b, w);
           }
           broadcast('blocks', d, id, id);
         }
         break;
       case 'bdata':
         if ([d.x, d.y, d.z].every(Number.isInteger)) {
-          const k = `${d.x},${d.y},${d.z}`;
+          const k = d.w === 1 ? `${d.x},${d.y},${d.z},1` : `${d.x},${d.y},${d.z}`;
           if (d.d && typeof d.d === 'object') world.data[k] = d.d; else delete world.data[k];
           dirty = true;
           broadcast('bdata', d, id, id);

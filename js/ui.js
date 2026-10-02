@@ -33,7 +33,11 @@ const FOOD = [
 const FOOD_HALF = FOOD.map((r) => [...r].map((ch, x) => (x < 6 && (ch === 'M' || ch === 'H') && x <= 5 ? (x < 5 ? 'E' : ch) : ch)).join(''));
 const FOOD_EMPTY = FOOD.map((r) => r.replace(/[MHB]/g, 'E'));
 const BUBBLE = ['..XXXXX..', '.XWWBBBX.', 'XWWBBBBBX', 'XWBBBBBBX', 'XBBBBBBBX', 'XBBBBBBBX', '.XBBBBBX.', '..XXXXX..', '.........'];
+const ARMOR_ICON = ['.XXXXXXX.', 'XAAXAXAAX', 'XAAAAAAAX', '.XAAAAAX.', '.XAAAAAX.', '.XAAAAAX.', '.XAAAAAX.', '.XXXXXXX.', '.........'];
 const ICONS = {
+  armor: pixelIcon(ARMOR_ICON, { X: '#2a2a2a', A: '#dcdcdc' }),
+  armorHalf: pixelIcon(ARMOR_ICON.map((r) => [...r].map((ch, x) => (x > 4 && ch === 'A' ? 'E' : ch)).join('')), { X: '#2a2a2a', A: '#dcdcdc', E: '#3a3a3a' }),
+  armorEmpty: pixelIcon(ARMOR_ICON.map((r) => r.replace(/A/g, 'E')), { X: '#2a2a2a', E: '#3a3a3a' }),
   heart: pixelIcon(HEART, { X: '#2a0000', R: '#e01010', W: '#ffb0b0', E: '#3a0a0a' }),
   heartHalf: pixelIcon(HEART_HALF, { X: '#2a0000', R: '#e01010', W: '#ffb0b0', E: '#3a0a0a' }),
   heartEmpty: pixelIcon(HEART_EMPTY, { X: '#2a0000', E: '#3a0a0a' }),
@@ -206,6 +210,15 @@ class UI {
     bindRange('opt-vol', 'volume', (v) => `Sound: ${v === 0 ? 'OFF' : Math.round(v * 100) + '%'}`, (v) => { Sound.volume = v; });
     $('opt-name').onchange = () => { this.game.settings.name = this.cleanName($('opt-name').value); $('opt-name').value = this.game.settings.name; this.saveSettings(); };
     $('btn-opt-done').onclick = () => this.showScreen(this.optionsBack || 'title');
+    $('btn-opt-shaders').onclick = () => {
+      const order = ['OFF', 'LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
+      const cur = this.game.settings.shaders || 'MEDIUM';
+      const next = order[(order.indexOf(cur) + 1) % order.length];
+      this.game.settings.shadersAuto = false;
+      this.game.setShaders(next);
+      this.saveSettings();
+      this.renderOptions();
+    };
 
     // Pause
     $('btn-resume').onclick = () => this.resume();
@@ -450,6 +463,10 @@ class UI {
     set('opt-sens', s.sensitivity, `Sensitivity: ${Math.round(s.sensitivity * 100)}%`);
     set('opt-vol', s.volume, `Sound: ${s.volume === 0 ? 'OFF' : Math.round(s.volume * 100) + '%'}`);
     $('opt-name').value = s.name;
+    const g = this.game;
+    const names = { OFF: 'OFF', LOW: 'Halcyon (Low)', MEDIUM: 'Halcyon (Medium)', HIGH: 'Halcyon (High)', ULTRA: 'Halcyon (Ultra)' };
+    const unsupported = s.shaders !== 'OFF' && g.halcyon && !g.halcyon.supported;
+    $('btn-opt-shaders').textContent = 'Shaders: ' + (unsupported ? 'not supported in this browser' : names[s.shaders || 'MEDIUM']);
   }
 
   // ---------------------------------------------------------------- HUD
@@ -523,7 +540,8 @@ class UI {
     $('hotbar').hidden = p.mode === 'spectator';
     if (surv) {
       const hp = Math.ceil(p.health), food = Math.ceil(p.food), air = p.eyeInWater || p.air < 15 ? Math.ceil(p.air / 1.5) : -1;
-      const key = `${hp}|${food}|${air}|${g.hardcore}|${p.hurtTime > 0 ? 1 : 0}`;
+      const armor = p.armorPoints;
+      const key = `${hp}|${food}|${air}|${g.hardcore}|${p.hurtTime > 0 ? 1 : 0}|${armor}`;
       if (this.hudCache.stats !== key) {
         this.hudCache.stats = key;
         const hearts = $('hearts');
@@ -545,6 +563,15 @@ class UI {
           img.alt = '';
           foodEl.appendChild(img);
         }
+        const armorEl = $('armor-row');
+        armorEl.innerHTML = '';
+        if (armor > 0) for (let i = 0; i < 10; i++) {
+          const v = armor - i * 2;
+          const img = el('img');
+          img.src = v >= 2 ? ICONS.armor : v === 1 ? ICONS.armorHalf : ICONS.armorEmpty;
+          img.alt = '';
+          armorEl.appendChild(img);
+        }
         const airEl = $('air');
         airEl.innerHTML = '';
         if (air >= 0) for (let i = 0; i < air; i++) { const img = el('img'); img.src = ICONS.bubble; img.alt = ''; airEl.appendChild(img); }
@@ -554,6 +581,8 @@ class UI {
       $('food').classList.toggle('low', p.food <= 0);
     }
     $('hurt-overlay').style.opacity = p.hurtTime > 0 ? p.hurtTime * 1.2 : 0;
+    $('portal-overlay').style.opacity = p.inPortal && !p.portalLock && p.portalCooldown <= 0 ? Math.min(0.8, p.portalTime / 4) : 0;
+    $('fire-overlay').hidden = !(p.fireTime > 0 && p.usesHealth);
     $('underwater').hidden = !g.underwater;
     $('loading').hidden = g.isReady() && !g.pendingEdits;
     if (g.pendingEdits && performance.now() - g.pendingEdits.started > 15000) g.pendingEdits = null;
@@ -600,6 +629,16 @@ class UI {
     this.buildGui();
   }
   openCrafting() { this.openGui('crafting'); }
+  openTrade(mob) { this.openGui('trade', { mob }); }
+
+  // Fade to black, run cb, fade back (sleeping)
+  sleep(cb) {
+    const o = $('sleep-overlay');
+    o.hidden = false;
+    o.style.opacity = 0;
+    requestAnimationFrame(() => { o.style.opacity = 1; });
+    setTimeout(() => { cb(); o.style.opacity = 0; setTimeout(() => { o.hidden = true; }, 900); }, 2200);
+  }
   openFurnace(x, y, z) {
     const w = this.game.world;
     if (!w.getData(x, y, z) || !w.getData(x, y, z).slots) w.setData(x, y, z, Object.assign(w.getData(x, y, z) || {}, { type: 'furnace', slots: [0, 0, 0], burn: 0, burnMax: 0, cook: 0 }));
@@ -656,7 +695,7 @@ class UI {
         const d = g.world.getData(x, y, z);
         if (!d || !d.slots) return;
         d.slots[i] = UI.toArr(s);
-        g.net.send('bdata', { x, y, z, d });
+        g.net.send('bdata', { x, y, z, d, w: g.world.dim });
       },
     };
   }
@@ -707,8 +746,48 @@ class UI {
       addSlot(r, out, 'big');
     };
 
+    if (gui.kind === 'trade') {
+      const mob = gui.mob;
+      title(`${mob.profession[0].toUpperCase() + mob.profession.slice(1)} Villager`);
+      const list = el('div', 'trade-list');
+      panel.appendChild(list);
+      const inv = this.game.player.inventory;
+      for (const offer of this.game.tradeOffers(mob)) {
+        const [c1, c2, res] = offer;
+        const btn = el('button', 'trade-row');
+        btn.type = 'button';
+        const icon = (id, n) => {
+          const sl = el('div', 'slot small');
+          this.slotContent(sl, stackOf(id, n));
+          sl.title = ITEMS[id].name;
+          return sl;
+        };
+        btn.appendChild(icon(c1[0], c1[1]));
+        btn.appendChild(c2 ? icon(c2[0], c2[1]) : el('div', 'slot small blank'));
+        btn.appendChild(el('div', 'arrow'));
+        btn.appendChild(icon(res[0], res[1]));
+        const can = inv.count(c1[0]) >= c1[1] && (!c2 || inv.count(c2[0]) >= c2[1]);
+        btn.classList.toggle('disabled', !can);
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); if (this.game.doTrade(offer)) this.buildGui(); else Sound.click(); });
+        list.appendChild(btn);
+      }
+      playerInv();
+      this.renderGui();
+      return;
+    }
     if (gui.kind === 'inventory') {
       const top = row('inv-top');
+      const armorCol = el('div', 'armor-col');
+      top.appendChild(armorCol);
+      const pa = this.game.player.armor;
+      for (let i = 0; i < 4; i++) {
+        const ref = {
+          get: () => pa.slots[i], set: (st) => { pa.slots[i] = st; pa.changed(); }, group: 'armor',
+          accepts: (st) => !!(ITEMS[st.id].armor && ITEMS[st.id].armor.slot === i),
+        };
+        const e = addSlot(armorCol, ref, 'armor-slot');
+        e.node.dataset.piece = ['helmet', 'chest', 'legs', 'boots'][i];
+      }
       const preview = el('div', 'player-preview');
       preview.appendChild(this.playerPreview());
       preview.appendChild(el('div', 'pp-label', this.game.settings.name));
@@ -925,7 +1004,9 @@ class UI {
     const p = this.game.player;
     const gui = this.gui;
     let targets;
-    if (ref.group === 'container' || ref.group === 'grid') {
+    if (gui.kind === 'inventory' && ITEMS[s.id].armor && ref.group !== 'armor') {
+      targets = gui.slots.filter((e) => e.ref.group === 'armor').map((e) => e.ref);
+    } else if (ref.group === 'container' || ref.group === 'grid' || ref.group === 'armor') {
       targets = gui.slots.filter((e) => e.ref.group === 'hotbar' || e.ref.group === 'main').map((e) => e.ref);
       targets.reverse();
     } else if (gui.kind === 'chest') {

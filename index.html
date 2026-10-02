@@ -15,6 +15,8 @@
   <div id="hud" hidden>
     <div id="underwater" hidden></div>
     <div id="hurt-overlay"></div>
+    <div id="portal-overlay"></div>
+    <div id="fire-overlay" hidden></div>
     <div id="crosshair"></div>
     <pre id="debug" hidden></pre>
     <div id="loading" hidden>Loading terrain…</div>
@@ -25,6 +27,10 @@
     <div id="toast"></div>
     <div id="bottom-hud">
       <div id="stats">
+        <div class="stat-row">
+          <div id="armor-row" class="icons"></div>
+          <div></div>
+        </div>
         <div class="stat-row">
           <div id="hearts" class="icons"></div>
           <div id="air" class="icons right"></div>
@@ -44,6 +50,8 @@
   </div>
   <div id="cursor-item" class="slot" hidden></div>
   <div id="tooltip" hidden></div>
+
+  <div id="sleep-overlay" hidden></div>
 
   <!-- Death -->
   <div id="death" hidden>
@@ -146,6 +154,8 @@
   <div id="screen-options" class="screen" hidden>
     <h2>Options</h2>
     <div class="form options">
+      <button id="btn-opt-shaders" class="btn">Shaders: Halcyon (Medium)</button>
+      <p id="opt-shaders-desc" class="desc">Your Halcyon shader pack, ported to the browser: soft shadows, volumetric clouds, reflective water, god rays and bloom. Lower it if the game feels slow.</p>
       <label class="slider"><span id="opt-fov-label">FOV</span><input id="opt-fov" type="range" min="30" max="110" step="1"></label>
       <label class="slider"><span id="opt-rd-label">Render Distance</span><input id="opt-rd" type="range" min="2" max="12" step="1"></label>
       <label class="slider"><span id="opt-sens-label">Sensitivity</span><input id="opt-sens" type="range" min="0.2" max="3" step="0.05"></label>
@@ -177,7 +187,9 @@
   <script src="js/noise.js"></script>
   <script src="js/blocks.js"></script>
   <script src="js/items.js"></script>
+  <script src="js/textures2.js"></script>
   <script src="js/world.js"></script>
+  <script src="js/villages.js"></script>
   <script src="js/physics.js"></script>
   <script src="js/inventory.js"></script>
   <script src="js/player.js"></script>
@@ -185,7 +197,10 @@
   <script src="js/sound.js"></script>
   <script src="js/entities.js"></script>
   <script src="js/net.js"></script>
+  <script src="js/halcyon_glsl.js"></script>
+  <script src="js/halcyon.js"></script>
   <script src="js/game.js"></script>
+  <script src="js/gameplay.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>

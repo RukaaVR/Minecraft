@@ -5,9 +5,9 @@ const DAY_LENGTH = 20 * 60; // seconds in a full day, like Minecraft
 const DIFFICULTIES = ['peaceful', 'easy', 'normal', 'hard'];
 
 const CHUNK_VERT = `
-attribute vec3 light;
+attribute vec4 light;
 varying vec2 vUv;
-varying vec3 vLight;
+varying vec4 vLight;
 varying float vDist;
 void main() {
   vUv = uv;
@@ -24,17 +24,22 @@ uniform float fogNear;
 uniform float fogFar;
 uniform float opacity;
 uniform float alphaTest;
+uniform float minLight;
 varying vec2 vUv;
-varying vec3 vLight;
+varying vec4 vLight;
 varying float vDist;
+float curve(float l) { return max(0.03, pow(0.8, 15.0 - l * 15.0)); }
 void main() {
   vec4 t = texture2D(map, vUv);
   if (t.a < alphaTest) discard;
-  float sky = vLight.x * daylight;
-  float blk = vLight.y;
+  float face = floor(vLight.w / 16.0 + 0.001);
+  float shade = face < 1.5 ? 0.8 : face < 2.5 ? 0.5 : face < 3.5 ? 1.0 : face < 5.5 ? 0.65 : 1.0;
+  float sky = curve(vLight.x) * daylight;
+  float blk = curve(vLight.y);
+  if (vLight.y <= 0.0) blk = 0.0;
   vec3 lc = max(vec3(sky), vec3(blk, blk * 0.92, blk * 0.78));
-  lc = max(lc, vec3(0.02));
-  vec3 c = t.rgb * lc * vLight.z;
+  lc = max(lc, vec3(minLight));
+  vec3 c = t.rgb * lc * vLight.z * shade;
   float f = smoothstep(fogNear, fogFar, vDist);
   gl_FragColor = vec4(mix(c, fogColor, f), t.a * opacity);
 }`;
@@ -49,6 +54,7 @@ function makeChunkMaterial(atlas, o = {}) {
       fogFar: { value: 100 },
       opacity: { value: o.opacity ?? 1 },
       alphaTest: { value: o.alphaTest ?? 0 },
+      minLight: { value: 0.02 },
     },
     vertexShader: CHUNK_VERT,
     fragmentShader: CHUNK_FRAG,
@@ -88,21 +94,37 @@ class Game {
     atlas.minFilter = THREE.NearestFilter;
     atlas.generateMipmaps = false;
     this.atlas = atlas;
-    this.materials = {
+    this.vanillaMats = {
       solid: makeChunkMaterial(atlas, { alphaTest: 0.5 }),
       water: makeChunkMaterial(atlas, { transparent: true, opacity: 0.75, side: THREE.DoubleSide }),
     };
+    this.halcyon = null;
+    const game = this;
+    // World meshes ask for their material here, so switching renderers is a swap.
+    this.materials = {
+      get solid() { return game.hdr ? game.halcyon.mats.solid : game.vanillaMats.solid; },
+      get water() { return game.hdr ? game.halcyon.mats.water : game.vanillaMats.water; },
+    };
+    this.camera.layers.enable(2);
     this.entityMat = new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide });
     this.crackMat = new THREE.MeshBasicMaterial({ map: atlas, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.smokeGeo = new THREE.BoxGeometry(1, 1, 1);
     this.smokeMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.6, depthWrite: false });
 
-    this.settings = { renderDistance: 6, sensitivity: 1, fov: 70, volume: 0.6, name: 'Player' + Math.floor(Math.random() * 900 + 100) };
+    this.settings = { renderDistance: 6, sensitivity: 1, fov: 70, volume: 0.6, name: 'Player' + Math.floor(Math.random() * 900 + 100), shaders: 'MEDIUM' };
     this.world = null;
     this.player = null;
     this.net = new Net(this);
     this.mobs = new Map();
     this.items = [];
+    this.projectiles = [];
+    this.worlds = [null, null];
+    this.fluidQueue = new Map();
+    this.pendingBlocks = [];
+    this.villagePopulated = new Set();
+    this.simTime = 0;
+    this.dayCount = 0;
+    this.bowCharge = 0;
     this.tnts = [];
     this.remotePlayers = new Map();
     this.particles = new Particles(this);
@@ -203,6 +225,9 @@ class Game {
     this.items = [];
     for (const t of this.tnts) { this.scene.remove(t.mesh); t.mesh.geometry.dispose(); }
     this.tnts = [];
+    for (const pr of this.projectiles) pr.dispose();
+    this.projectiles = [];
+    this.villagePopulated.clear();
     for (const rp of this.remotePlayers.values()) rp.dispose();
     this.remotePlayers.clear();
     this.particles.clear();
@@ -212,7 +237,9 @@ class Game {
   startPanorama() {
     this._resetEntities();
     if (this.world) this.world.dispose();
-    this.world = new World(this.scene, 1987, this.materials);
+    this.worldSeed = 1987;
+    this.worlds = [null, null];
+    this.world = this.worldFor(0);
     this.player = new Player(this.world);
     const info = this.world.columnInfo(8, 8);
     this.player.pos.set(8, Math.max(info.height, SEA_LEVEL) + 14, 8);
@@ -234,12 +261,21 @@ class Game {
     this.hardcore = saved ? !!saved.hardcore : !!opts.hardcore;
     this.defaultMode = saved ? saved.mode || 'survival' : opts.mode || 'survival';
     const seed = saved ? saved.seed : opts.seed;
-    this.world = new World(this.scene, seed, this.materials);
+    this.worldSeed = seed;
+    this.worlds = [null, null];
+    this.world = this.worldFor(0);
     this.player = new Player(this.world);
     this._wirePlayer();
+    this.dayCount = saved ? saved.dayCount || 0 : 0;
     if (saved) {
       this.world.loadEdits(saved.edits);
       this.world.loadData(saved.data);
+      if (saved.netherEdits || saved.netherData) {
+        const n = this.worldFor(1);
+        n.loadEdits(saved.netherEdits);
+        n.loadData(saved.netherData);
+      }
+      if (saved.dim === 1) { this.world = this.worldFor(1); this.player.world = this.world; }
       this.player.load(saved.player);
       this.timeOfDay = saved.time ?? 0.3;
       this.worldSpawn = saved.spawn || this.findSpawn();
@@ -266,7 +302,9 @@ class Game {
     this.difficulty = Math.max(0, Math.min(3, w.difficulty | 0));
     this.cheats = false;
     this.hardcore = false;
-    this.world = new World(this.scene, w.seed | 0, this.materials);
+    this.worldSeed = w.seed | 0;
+    this.worlds = [null, null];
+    this.world = this.worldFor(0);
     this.player = new Player(this.world);
     this._wirePlayer();
     const sp = w.spawn && Number.isFinite(w.spawn.x) ? w.spawn : this.findSpawn();
@@ -315,8 +353,12 @@ class Game {
       difficulty: this.difficulty,
       cheats: this.cheats,
       hardcore: this.hardcore,
-      edits: this.world.serializeEdits(),
-      data: this.world.serializeData(),
+      edits: this.worldFor(0).serializeEdits(),
+      data: this.worldFor(0).serializeData(),
+      netherEdits: this.worlds[1] ? this.worlds[1].serializeEdits() : undefined,
+      netherData: this.worlds[1] ? this.worlds[1].serializeData() : undefined,
+      dim: this.world.dim,
+      dayCount: this.dayCount,
       player: this.player.serialize(),
       time: this.timeOfDay,
       spawn: this.worldSpawn,
@@ -328,13 +370,51 @@ class Game {
   lightAt(x, y, z) {
     if (!this.world) return 1;
     const l = this.world.getLight(Math.floor(x), Math.floor(y), Math.floor(z));
-    return Math.max(LIGHT_CURVE[l.sky] * this.daylight, LIGHT_CURVE[l.block], 0.06);
+    if (this.hdr) return this.halcyon.entityLight(l.sky, l.block);
+    const amb = this.world.dim === 1 ? 0.4 : 0.06;
+    return Math.max(LIGHT_CURVE[l.sky] * this.daylight, LIGHT_CURVE[l.block], amb);
+  }
+
+  // Turn the Halcyon shaders on/off or change preset ('OFF', 'LOW', 'MEDIUM', 'HIGH', 'ULTRA').
+  setShaders(preset) {
+    this.settings.shaders = preset;
+    if (preset !== 'OFF') {
+      if (!this.halcyon) this.halcyon = new HalcyonRenderer(this.renderer, this, preset);
+      else if (this.halcyon.presetName !== preset) this.halcyon.setPreset(preset);
+    }
+    const on = preset !== 'OFF' && this.halcyon && this.halcyon.supported;
+    this.hdr = !!on;
+    if (this.world) for (const ch of this.world.chunks.values()) {
+      if (ch.solidMesh) ch.solidMesh.material = this.materials.solid;
+      if (ch.waterMesh) ch.waterMesh.material = this.materials.water;
+    }
+    for (const o of [this.sun, this.moon, this.stars, this.clouds]) o.visible = !this.hdr;
+    this._hdrDefines(this.scene);
+    this._hdrDefines(this.handScene);
+    return this.hdr;
+  }
+
+  // Entity materials: linearise textures in HDR mode
+  _hdrDefines(root) {
+    const want = this.hdr;
+    root.traverse((o) => {
+      const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      for (const m of mats) {
+        if (!m || m.isShaderMaterial) continue;
+        const has = !!(m.defines && m.defines.HDR_LINEAR);
+        if (has === want) continue;
+        m.defines = Object.assign({}, m.defines);
+        if (want) m.defines.HDR_LINEAR = 1; else delete m.defines.HDR_LINEAR;
+        m.needsUpdate = true;
+      }
+    });
   }
 
   allPlayers() {
     const list = [];
     if (this.player && !this.player.dead) list.push({ pos: this.player.pos, local: true, mode: this.player.mode });
-    for (const rp of this.remotePlayers.values()) list.push({ pos: rp.pos, local: false, peer: rp.peer, mode: rp.mode });
+    const dim = this.world ? this.world.dim : 0;
+    for (const rp of this.remotePlayers.values()) if (rp.dim === dim) list.push({ pos: rp.pos, local: false, peer: rp.peer, mode: rp.mode });
     return list;
   }
 
@@ -361,15 +441,20 @@ class Game {
   changeBlock(x, y, z, id, opts = {}) {
     const old = this.world.getBlock(x, y, z);
     if (!this.world.setBlock(x, y, z, id)) return false;
+    if (opts.batch) {
+      this.pendingBlocks.push([x, y, z, id]);
+      return true;
+    }
     let facing = null;
     if (id !== B.AIR && BLOCKS[id].facing && opts.facing !== undefined) {
       facing = opts.facing;
       const prev = this.world.getData(x, y, z) || {};
       this.world.setData(x, y, z, Object.assign({}, prev, { facing }));
     }
-    const msg = { x, y, z, id };
+    const msg = { x, y, z, id, w: this.world.dim };
     if (facing !== null) msg.f = facing;
     this.net.send('block', msg);
+    if (id !== old) this.removePartner(x, y, z, old);
     if (!opts.noUpdate) this.neighbourUpdates(x, y, z, old, id);
     return true;
   }
@@ -377,7 +462,7 @@ class Game {
   // Plants/torches pop off, sand falls, water fills gaps.
   neighbourUpdates(x, y, z, old, id) {
     const w = this.world;
-    if (id === B.AIR || id === B.WATER) {
+    if (!isSolid(id)) {
       const above = w.getBlock(x, y + 1, z);
       if (BLOCKS[above].needsSupport) {
         this.changeBlock(x, y + 1, z, B.AIR);
@@ -385,13 +470,9 @@ class Game {
       } else if (BLOCKS[above].gravity) {
         this.fall(x, y + 1, z);
       }
-      if (id === B.AIR) {
-        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-          if (w.getBlock(x + dx, y + dy, z + dz) === B.WATER) { this.changeBlock(x, y, z, B.WATER, { noUpdate: true }); break; }
-        }
-      }
     }
     if (id !== B.AIR && BLOCKS[id].gravity) this.fall(x, y, z);
+    this.scheduleAround(x, y, z);
   }
 
   fall(x, y, z) {
@@ -444,8 +525,9 @@ class Game {
       if (Math.random() < 0.3) this.dropBlockItems(bx, by, bz, id, true);
     }
     if (authority) {
-      this.net.sendBlocks(cleared);
-      this.net.send('boom', { x, y, z, p: power });
+      this.net.sendBlocks(cleared.map((b) => [b[0], b[1], b[2], b[3], this.world.dim]));
+      this.net.send('boom', { x, y, z, p: power, w: this.world.dim });
+      for (const [bx, by, bz] of cleared) this.scheduleAround(bx, by, bz);
     }
     this.explosionEffects(x, y, z, power, authority);
   }
@@ -617,8 +699,14 @@ class Game {
     const item = held ? ITEMS[held.id] : null;
     const hit = t.block;
 
+    if (t.entity && t.entity instanceof Mob && t.entity.type === 'villager' && !t.entity.dead) {
+      this.ui.openTrade(t.entity);
+      return;
+    }
     if (hit && !p.sneaking) {
       const id = hit.id;
+      if (id === B.DOOR_LOWER || id === B.DOOR_UPPER) { this.toggleDoor(hit.x, hit.y, hit.z, id); this.doSwing(); this.useCooldown = 0.25; return; }
+      if (id === B.BED_FOOT || id === B.BED_HEAD) { this.useBed(hit); this.useCooldown = 0.5; return; }
       if (id === B.CRAFTING_TABLE) { this.ui.openCrafting(); return; }
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.ui.openFurnace(hit.x, hit.y, hit.z); return; }
       if (id === B.CHEST) { this.ui.openChest(hit.x, hit.y, hit.z); return; }
@@ -631,6 +719,10 @@ class Game {
         return;
       }
     }
+    if (item && (item.armor || item.places || held.id === ITEM.BUCKET || held.id === ITEM.WATER_BUCKET || held.id === ITEM.LAVA_BUCKET || held.id === ITEM.BONE_MEAL || held.id === ITEM.FLINT_STEEL || (item.tool && item.tool.type === 'hoe'))) {
+      if (this.useSpecial(hit, held, item)) { this.useCooldown = 0.25; return; }
+    }
+    if (item && held.id === ITEM.BOW) return;
     if (item && item.food > 0 && (p.food < 20 || p.mode === 'creative')) {
       if (p.mode !== 'creative') { this.eating = Math.max(this.eating, 0.0001); }
       return;
@@ -654,7 +746,7 @@ class Game {
       this.changeBlock(tx, ty, tz, bid, { facing: b.facing ? this._facingToward(p, tx, tz) : undefined });
       if (bid === B.CHEST) this.world.setData(tx, ty, tz, Object.assign(this.world.getData(tx, ty, tz) || {}, { type: 'chest', slots: new Array(27).fill(0) }));
       if (bid === B.FURNACE) this.world.setData(tx, ty, tz, Object.assign(this.world.getData(tx, ty, tz) || {}, { type: 'furnace', slots: [0, 0, 0], burn: 0, burnMax: 0, cook: 0 }));
-      if (b.facing || bid === B.CHEST || bid === B.FURNACE) this.net.send('bdata', { x: tx, y: ty, z: tz, d: this.world.getData(tx, ty, tz) });
+      if (b.facing || bid === B.CHEST || bid === B.FURNACE) this.net.send('bdata', { x: tx, y: ty, z: tz, d: this.world.getData(tx, ty, tz), w: this.world.dim });
       Sound.block(b.sound);
       this.doSwing();
       this.useCooldown = 0.2;
@@ -733,6 +825,7 @@ class Game {
     const msgs = {
       fall: 'hit the ground too hard', drown: 'drowned', starve: 'starved to death', mob: 'was slain',
       explosion: 'blew up', player: 'was killed by another player', void: 'fell out of the world', kill: 'died',
+      lava: 'tried to swim in lava', fire: 'burned to death', arrow: 'was shot by an arrow',
     };
     const text = `${this.settings.name} ${msgs[cause] || 'died'}`;
     this.chat.system(text);
@@ -797,8 +890,8 @@ class Game {
   }
 
   // ---------------------------------------------------------------- mobs
-  spawnMob(type, x, y, z) {
-    const m = new Mob(this, type, x, y, z);
+  spawnMob(type, x, y, z, extra) {
+    const m = new Mob(this, type, x, y, z, null, extra);
     this.mobs.set(m.id, m);
     return m;
   }
@@ -807,17 +900,18 @@ class Game {
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
     this.spawnTimer = 0.5;
+    const w = this.world;
     const players = this.allPlayers().filter((p) => p.mode !== 'spectator');
     if (!players.length) return;
     let passive = 0, hostile = 0;
     for (const m of this.mobs.values()) {
       let near = Infinity;
       for (const p of players) near = Math.min(near, p.pos.distanceTo(m.pos));
-      const far = m.info.hostile ? 80 : 110;
-      if (near > far || !this.world.isLoaded(m.pos.x, m.pos.z) || (m.info.hostile && this.difficulty === 0)) {
+      const far = m.info.persistent ? 1e9 : m.info.hostile ? 80 : 110;
+      if (near > far || !w.isLoaded(m.pos.x, m.pos.z) || (m.info.hostile && this.difficulty === 0)) {
         m.dispose(); this.mobs.delete(m.id); continue;
       }
-      if (m.info.hostile) hostile++; else passive++;
+      if (m.info.hostile || m.info.neutral) hostile++; else if (!m.info.persistent) passive++;
     }
     const cap = this.net.active ? 30 : 60;
     if (passive + hostile >= cap) return;
@@ -825,33 +919,53 @@ class Game {
     const a = Math.random() * Math.PI * 2;
     const d = 24 + Math.random() * 24;
     const x = Math.floor(p.pos.x + Math.cos(a) * d), z = Math.floor(p.pos.z + Math.sin(a) * d);
-    if (!this.world.isLoaded(x, z)) return;
-    const sy = this.world.surfaceY(x, z);
-    if (sy < 0) return;
-    for (const q of players) if (q.pos.distanceTo(new THREE.Vector3(x, sy, z)) < 20) return;
+    if (!w.isLoaded(x, z)) return;
+    const tooClose = (y) => players.some((q) => q.pos.distanceTo(new THREE.Vector3(x, y, z)) < 20);
 
-    if (passive < 10 * players.length && this.daylight > 0.5 && this.world.getBlock(x, sy, z) === B.GRASS && Math.random() < 0.3) {
+    if (w.dim === 1) {
+      // Nether: zombified piglins on netherrack, ghasts in big open caverns
+      if (this.difficulty === 0 && Math.random() < 0.7) return;
+      if (hostile >= 10 * players.length) return;
+      const ghast = Math.random() < 0.25;
+      for (let tries = 0; tries < 8; tries++) {
+        const y = 32 + Math.floor(Math.random() * 80);
+        if (tooClose(y)) continue;
+        if (ghast) {
+          let open = true;
+          for (let dx = -2; dx <= 2 && open; dx += 2) for (let dy = 0; dy <= 4 && open; dy += 2) for (let dz = -2; dz <= 2 && open; dz += 2) if (w.getBlock(x + dx, y + dy, z + dz) !== B.AIR) open = false;
+          if (open && this.difficulty > 0) { this.spawnMob('ghast', x + 0.5, y, z + 0.5); return; }
+        } else if (w.getBlock(x, y, z) === B.AIR && w.getBlock(x, y + 1, z) === B.AIR && w.getBlock(x, y - 1, z) === B.NETHERRACK) {
+          const n = 1 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < n; i++) this.spawnMob('piglin', x + 0.5 + i * 0.7, y, z + 0.5);
+          return;
+        }
+      }
+      return;
+    }
+
+    const sy = w.surfaceY(x, z);
+    if (sy < 0 || tooClose(sy)) return;
+    if (passive < 10 * players.length && this.daylight > 0.5 && w.getBlock(x, sy, z) === B.GRASS && Math.random() < 0.3) {
       const type = ['pig', 'cow', 'sheep', 'chicken'][Math.floor(Math.random() * 4)];
       const n = 2 + Math.floor(Math.random() * 3);
       for (let i = 0; i < n; i++) {
         const ox = x + Math.floor(Math.random() * 5) - 2, oz = z + Math.floor(Math.random() * 5) - 2;
-        const oy = this.world.surfaceY(ox, oz);
-        if (this.world.getBlock(ox, oy, oz) === B.GRASS && !isSolid(this.world.getBlock(ox, oy + 1, oz))) this.spawnMob(type, ox + 0.5, oy + 1, oz + 0.5);
+        const oy = w.surfaceY(ox, oz);
+        if (w.getBlock(ox, oy, oz) === B.GRASS && !isSolid(w.getBlock(ox, oy + 1, oz))) this.spawnMob(type, ox + 0.5, oy + 1, oz + 0.5);
       }
       return;
     }
     if (this.difficulty === 0 || hostile >= 12 * players.length) return;
-    const type = Math.random() < 0.6 ? 'zombie' : 'creeper';
-    // Surface at night
-    if (this.daylight < 0.35 && isSolid(this.world.getBlock(x, sy, z)) && this.world.getBlock(x, sy + 1, z) === B.AIR) {
-      const l = this.world.getLight(x, sy + 1, z);
-      if (l.block < 8) { this.spawnMob(type, x + 0.5, sy + 1, z + 0.5); return; }
+    const r = Math.random();
+    const type = r < 0.4 ? 'zombie' : r < 0.65 ? 'skeleton' : r < 0.85 ? 'creeper' : 'spider';
+    if (this.daylight < 0.35 && isSolid(w.getBlock(x, sy, z)) && w.getBlock(x, sy + 1, z) === B.AIR) {
+      const l = w.getLight(x, sy + 1, z);
+      if (l.block < 8 && Villages.near(w, x, z, 40).length === 0) { this.spawnMob(type, x + 0.5, sy + 1, z + 0.5); return; }
     }
-    // Dark caves any time
     for (let tries = 0; tries < 6; tries++) {
       const y = 5 + Math.floor(Math.random() * Math.max(1, sy - 8));
-      if (this.world.getBlock(x, y, z) !== B.AIR || this.world.getBlock(x, y + 1, z) !== B.AIR || !isSolid(this.world.getBlock(x, y - 1, z))) continue;
-      const l = this.world.getLight(x, y, z);
+      if (w.getBlock(x, y, z) !== B.AIR || w.getBlock(x, y + 1, z) !== B.AIR || !isSolid(w.getBlock(x, y - 1, z))) continue;
+      const l = w.getLight(x, y, z);
       if (l.sky < 4 && l.block < 6) { this.spawnMob(type, x + 0.5, y, z + 0.5); return; }
     }
   }
@@ -859,11 +973,11 @@ class Game {
   serializeMobs() {
     const out = [];
     for (const m of this.mobs.values()) {
-      if (out.length >= 40) break;
+      if (out.length >= 36) break;
       let flags = 0;
       if (m.hurtTime > 0) flags |= 1;
       if (m.dead) flags |= 2;
-      out.push([m.id, MOB_TYPES.indexOf(m.type), Math.round(m.pos.x * 10), Math.round(m.pos.y * 10), Math.round(m.pos.z * 10), Math.round(m.yaw * 100), flags, Math.round(m.fuse * 10), m.swing > 0.5 ? 1 : 0]);
+      out.push([m.id, MOB_TYPES.indexOf(m.type), Math.round(m.pos.x * 10), Math.round(m.pos.y * 10), Math.round(m.pos.z * 10), Math.round(m.yaw * 100), flags, Math.round(m.fuse * 10), m.swing > 0.5 ? 1 : 0, m.profession ? PROFESSIONS.indexOf(m.profession) : -1]);
     }
     return out;
   }
@@ -879,7 +993,7 @@ class Game {
       seen.add(id);
       let m = this.mobs.get(id);
       if (!m) {
-        m = new Mob(this, type, x / 10, y / 10, z / 10, id);
+        m = new Mob(this, type, x / 10, y / 10, z / 10, id, { profession: PROFESSIONS[a[9]] || undefined });
         this.mobs.set(id, m);
       }
       m.target.set(x / 10, y / 10, z / 10);
@@ -911,35 +1025,38 @@ class Game {
     });
     net.on('edits', (d) => {
       if (!this.world || !this.remote) return;
-      for (const [x, y, z, id] of decodeBlocks(d.d)) if (BLOCKS[id]) this.world.applyRemoteEdit(x, y, z, id);
+      for (const [x, y, z, id, w] of decodeBlocks(d.d)) if (BLOCKS[id]) this.worldFor(w === 1 ? 1 : 0).applyRemoteEdit(x, y, z, id);
       if (this.pendingEdits) {
         this.pendingEdits.got++;
         this.pendingEdits.total = d.total | 0;
         if (this.pendingEdits.got >= this.pendingEdits.total) this.pendingEdits = null;
       }
     });
-    const applyBlock = (x, y, z, id) => {
+    const applyBlock = (x, y, z, id, w) => {
       if (!BLOCKS[id] || !Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) return;
+      const dim = w === 1 ? 1 : 0;
+      if (dim !== this.world.dim) { this.worldFor(dim).applyRemoteEdit(x, y, z, id); return; }
       const old = this.world.getBlock(x, y, z);
       if (id === B.AIR && old !== B.AIR && this.world.isLoaded(x, z)) {
         if (this.player.pos.distanceTo(new THREE.Vector3(x, y, z)) < 24) { this.particles.burst(x, y, z, old, 6); Sound.block(BLOCKS[old].sound, 0.5); }
       }
       this.world.applyRemoteEdit(x, y, z, id);
+      if (this.isAuthority) this.scheduleAround(x, y, z);
       if (this.ui) this.ui.containerChanged(x, y, z);
     };
     net.on('block', (d) => {
       if (!this.world) return;
-      applyBlock(d.x, d.y, d.z, d.id);
-      if (typeof d.f === 'number') this.world.setData(d.x, d.y, d.z, Object.assign({}, this.world.getData(d.x, d.y, d.z) || {}, { facing: d.f & 3 }));
+      applyBlock(d.x, d.y, d.z, d.id, d.w);
+      if (typeof d.f === 'number' && (d.w | 0) === this.world.dim) this.world.setData(d.x, d.y, d.z, Object.assign({}, this.world.getData(d.x, d.y, d.z) || {}, { facing: d.f & 3 }));
     });
     net.on('blocks', (d) => {
       if (!this.world) return;
-      for (const [x, y, z, id] of decodeBlocks(d.d)) applyBlock(x, y, z, id);
+      for (const [x, y, z, id, w] of decodeBlocks(d.d)) applyBlock(x, y, z, id, w);
     });
     net.on('bdata', (d) => {
       if (!this.world || !Number.isInteger(d.x)) return;
       const v = d.d && typeof d.d === 'object' ? d.d : null;
-      this.world.setData(d.x, d.y, d.z, v);
+      this.worldFor(d.w === 1 ? 1 : 0).setData(d.x, d.y, d.z, v);
       if (this.ui) this.ui.containerChanged(d.x, d.y, d.z);
     });
     net.on('chat', (d, from) => {
@@ -967,7 +1084,7 @@ class Game {
       }
     });
     net.on('boom', (d) => {
-      if (!this.player) return;
+      if (!this.player || (d.w | 0) !== this.world.dim) return;
       this.explosionEffects(+d.x, +d.y, +d.z, Math.min(8, +d.p || 3), false);
     });
     net.onPeersChanged = (peers, left) => {
@@ -984,7 +1101,9 @@ class Game {
         rp.applyState(pres);
         if (pres.host && !this.isAuthority) {
           if (typeof pres.t === 'number') this.timeOfDay = pres.t;
-          this.applyMobState(pres.mobs);
+          const same = (pres.d | 0) === this.world.dim;
+          this.applyMobState(same ? pres.mobs : []);
+          this.applyProjectileState(same ? pres.pr : []);
         }
       }
       for (const [id, rp] of this.remotePlayers) {
@@ -1033,10 +1152,12 @@ class Game {
       s: this.swingCount % 1000,
       k: p.sneaking ? 1 : 0,
     };
+    pres.d = this.world.dim;
     if (this.net.isHost) {
       pres.host = 1;
       pres.t = +this.timeOfDay.toFixed(5);
       pres.mobs = this.serializeMobs();
+      pres.pr = this.serializeProjectiles();
     }
     this.net.presence(pres);
   }
@@ -1053,9 +1174,25 @@ class Game {
     const num = (s, base) => (s && s.startsWith('~') ? base + (parseFloat(s.slice(1)) || 0) : parseFloat(s));
     switch (cmd) {
       case 'help':
-        say('/gamemode <survival|creative|adventure|spectator>, /time set <day|noon|night|midnight|n>, /tp <x> <y> <z>, /give <item> [count], /summon <mob>, /kill, /clear, /spawnpoint, /setworldspawn, /difficulty <level>, /seed, /list');
+        say('/gamemode <survival|creative|adventure|spectator>, /time set <day|noon|night|midnight|n>, /tp <x> <y> <z>, /give <item> [count], /summon <mob>, /locate village, /kill, /clear, /spawnpoint, /setworldspawn, /difficulty <level>, /seed, /list');
         break;
       case 'seed': say('Seed: ' + this.world.seed); break;
+      case 'locate': {
+        if ((args[0] || '').replace('minecraft:', '') !== 'village') { say('Usage: /locate village', '#f55'); return; }
+        if (this.world.dim !== 0) { say('Villages are only in the Overworld', '#f55'); return; }
+        let best = null, bd = Infinity;
+        const cx = Math.floor(p.pos.x / Villages.CELL), cz = Math.floor(p.pos.z / Villages.CELL);
+        for (let r = 0; r <= 6 && !best; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const v = Villages.villageAt(this.world, cx + dx, cz + dz);
+          if (!v) continue;
+          const d = Math.hypot(v.center[0] - p.pos.x, v.center[2] - p.pos.z);
+          if (d < bd) { bd = d; best = v; }
+        }
+        if (!best) { say('Could not find a village nearby', '#f55'); return; }
+        say(`The nearest village is at [${Math.floor(best.center[0])}, ~, ${Math.floor(best.center[2])}] (${Math.round(bd)} blocks away)`);
+        break;
+      }
       case 'list': say(`Players: ${[this.settings.name, ...[...this.remotePlayers.values()].map((r) => r.name)].join(', ')}`); break;
       case 'gamemode': case 'gm': {
         const map = { 0: 'survival', 1: 'creative', 2: 'adventure', 3: 'spectator', s: 'survival', c: 'creative', a: 'adventure', sp: 'spectator' };
@@ -1132,7 +1269,7 @@ class Game {
     if (!world) return;
     const p = this.player;
     const centres = [[p.pos.x, p.pos.z]];
-    if (this.net.isHost) for (const rp of this.remotePlayers.values()) centres.push([rp.pos.x, rp.pos.z]);
+    if (this.net.isHost) for (const rp of this.remotePlayers.values()) if (rp.dim === world.dim) centres.push([rp.pos.x, rp.pos.z]);
     const loading = !this.isReady();
     world.update(centres, this.settings.renderDistance, loading ? 14 : 7);
 
@@ -1163,8 +1300,10 @@ class Game {
       if (input.active) {
         this.updateMining(dt, input.attack);
         this.updateEating(dt, input.use);
+        this.updateBow(dt, input.use);
         if (input.use && this.eating <= 0 && this.useCooldown <= 0) this.use();
-      } else { this.stopMining(); this.eating = 0; }
+      } else { this.stopMining(); this.eating = 0; this.updateBow(dt, false); }
+      this.updatePortal(dt);
       // Footsteps
       if (p.onGround && !p.sneaking) {
         this.stepDist += Math.hypot(p.vel.x, p.vel.z) * dt;
@@ -1180,7 +1319,9 @@ class Game {
 
     // Simulation
     if (this.isAuthority) {
+      const before = this.timeOfDay;
       this.timeOfDay = (this.timeOfDay + dt / DAY_LENGTH) % 1;
+      if (this.timeOfDay < before) this.dayCount = (this.dayCount || 0) + 1;
       if (ready) this.updateSpawning(dt);
       for (const [id, m] of this.mobs) {
         if (!world.isLoaded(m.pos.x, m.pos.z)) continue;
@@ -1218,6 +1359,12 @@ class Game {
         this.explode(t.pos.x, t.pos.y + 0.5, t.pos.z, 4, true);
       }
     }
+    this.simTime += dt;
+    this.tickFluids();
+    this.tickGrowth(dt);
+    this.updateVillages(dt);
+    this.updateProjectiles(dt);
+    this.flushBlocks();
     this.tickFurnaces(dt);
     this.particles.update(dt);
     this.updateSky(dt, false);
@@ -1277,7 +1424,19 @@ class Game {
 
     let fogColor, near, far;
     const underwater = !menu && this.player.eyeInWater;
-    if (underwater) {
+    const nether = this.world.dim === 1;
+    if (nether) this.daylight = 0;
+    const vis = !this.hdr && !nether;
+    this.sun.visible = this.moon.visible = this.clouds.visible = vis;
+    if (!vis) this.stars.visible = false;
+    if (!menu && this.player.eyeInLava) {
+      fogColor = new THREE.Color(0.8, 0.25, 0.02);
+      near = 0.1; far = 2.5;
+    } else if (nether && !underwater) {
+      fogColor = new THREE.Color(0.2, 0.03, 0.03);
+      const fd = this.settings.renderDistance * CHUNK_SIZE;
+      near = 4; far = Math.min(fd * 0.9, 90);
+    } else if (underwater) {
       fogColor = sc.water.clone().multiplyScalar(this.daylight);
       near = 0.1; far = 18;
     } else {
@@ -1290,7 +1449,8 @@ class Game {
       near = fd * 0.55; far = fd * 0.95;
     }
     this.renderer.setClearColor(fogColor);
-    for (const m of [this.materials.solid, this.materials.water]) {
+    for (const m of [this.vanillaMats.solid, this.vanillaMats.water]) {
+      m.uniforms.minLight.value = nether ? 0.36 : 0.02;
       m.uniforms.daylight.value = this.daylight;
       m.uniforms.fogColor.value.copy(fogColor);
       m.uniforms.fogNear.value = near;
@@ -1388,7 +1548,7 @@ class Game {
       } else if (isCubeItem(id)) {
         this.handMesh = new THREE.Mesh(blockGeometry(id, 0.4), this.entityMat.clone());
       } else {
-        this.handMesh = new THREE.Mesh(itemGeometry(id, 0.6), this.entityMat.clone());
+        this.handMesh = new THREE.Mesh(itemGeometry(id, 0.42), this.entityMat.clone());
         this.handMesh.userData.flat = true;
       }
       this.handScene.add(this.handMesh);
@@ -1401,14 +1561,26 @@ class Game {
     let x = 0.52 + Math.cos(bob) * 0.015 - s * 0.25, y = -0.5 + Math.abs(Math.sin(bob)) * 0.025 + s * 0.12, z = -0.85 - s * 0.15;
     if (this.eating > 0) { x = 0.25; y = -0.38 + Math.abs(Math.sin(this.eating * 18)) * 0.04; z = -0.6; }
     if (m.userData.arm) { m.position.set(x + 0.08, y - 0.12, z + 0.1); m.rotation.set(-s * 0.8, 0.15 - s * 0.3, 0); }
-    else if (m.userData.flat) { m.position.set(x, y + 0.1, z); m.rotation.set(-s * 1.0, -0.6, 0.1); }
+    else if (m.userData.flat) {
+      const draw = this.bowCharge > 0 ? this.bowCharge : 0;
+      m.position.set(x - 0.02 - draw * 0.2, y + 0.12 + draw * 0.1, z - 0.05 + draw * 0.15);
+      m.rotation.set(-s * 1.0, -0.6 + draw * 0.5, 0.1 - draw * 0.3);
+    }
     else { m.position.set(x, y, z); m.rotation.set(0.1 - s * 0.6, 0.75, 0); }
     const l = this.lightAt(p.pos.x, p.pos.y + 1.6, p.pos.z);
     m.traverse((o) => { if (o.material) o.material.color.setRGB(l, l, l); });
   }
 
-  render() {
+  render(dt = 0.016) {
     const r = this.renderer;
+    if (this.hdr && this.world) {
+      this.halcyon.updateFrame(this, dt);
+      this._hdrDefines(this.scene);
+      this._hdrDefines(this.handScene);
+      this.halcyon.render(this);
+      return;
+    }
+    r.setRenderTarget(null);
     r.clear();
     r.render(this.scene, this.camera);
     if (this.mode === 'play' && (!this.ui || this.ui.camMode === 0)) {
