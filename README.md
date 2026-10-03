@@ -74,6 +74,7 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 - Third-person view (F5), debug screen (F3), hidden HUD (F1), day/night cycle, clouds and stars
 - **Player model**: a hand-drawn 64×64 skin with a second layer (hair tufts and a hood), idle arm sway, armour shown on the body, and held items in third person. Bots wear the same model with their own hair, skin tone and outfit, and team colours in team games.
 - **Sound**: everything is synthesized, with no audio files. Material footsteps and digging, a room reverb, left/right panning and distance falloff, voiced mob sounds, plucked bow strings, door and chest creaks, thunder, a rain bed, cave ambience, and generative piano music with its own volume slider.
+- **3D items and polish**: items in your hand, on the ground and in third person are solid 3D models (each texture pixel extruded, like Minecraft). The inventory shows a live 3D player model in your armour that turns to follow the mouse. A held torch, glowstone or lava bucket lights up the area around you. Mobs, players and items cast soft shadows. Items fly into you when picked up. The camera tilts when you're hurt, shakes in explosions and dips on hard landings. Critical hits throw sparks. A vignette frames the screen and pulses red at low health. Bodies turn and lean naturally: they lag behind the head, lean into sprints and crouch when sneaking.
 - Several saved worlds, each autosaved in the browser
 
 ## Controls
@@ -127,6 +128,7 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/ui.js` | Menus, HUD, chat, inventory screens, input |
 | `js/sound.js` | Synthesized sound effects, reverb, spatial audio and generative music |
 | `js/skins.js` | The player skin's pixel art, outfits, the layered player model, armour on the model |
+| `js/visuals.js` | Natural body poses, the 3D inventory player, held-item light, camera effects, item pickup flight, blob shadows, vignette, crit sparks |
 | `server/server.js` | Multiplayer server and static file host |
 
 ## Not in this version

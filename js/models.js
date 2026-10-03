@@ -376,19 +376,52 @@ function blockGeometry(id, size = 1, uvRegion = null) {
 }
 
 // A flat, slightly thick sprite for non-block items (double-sided quad).
-function itemGeometry(id, size = 1) {
+// Items are drawn like Minecraft's: the sprite on front and back, and a one-pixel-thick
+// edge around every opaque pixel so they are solid 3D objects. opts.flat skips the edges.
+let ATLAS_PIXELS = null;
+const ITEM_GEO_CACHE = new Map();
+function itemGeometry(id, size = 1, opts = {}) {
   const tile = id < 256 ? BLOCKS[id].tiles[0] : ITEMS[id].tile;
+  const key = tile + ':' + size + (opts.flat ? ':f' : '');
+  const cached = ITEM_GEO_CACHE.get(key);
+  if (cached) return cached.clone();
   const [u0, v0, u1, v1] = tileUV(tile);
-  const s = size / 2;
-  const pos = [-s, -s, 0, s, -s, 0, -s, s, 0, s, s, 0];
-  const uv = [u0, v0, u1, v0, u0, v1, u1, v1];
-  const col = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  const s = size / 2, px = size / TILE, t = opts.flat || !ATLAS_PIXELS ? 0 : px * 0.5;
+  const pos = [], uv = [], col = [], idx = [];
+  const quad = (a, b, c, d, uvs, shade) => {
+    const n = pos.length / 3;
+    pos.push(...a, ...b, ...c, ...d);
+    uv.push(...uvs);
+    for (let i = 0; i < 4; i++) col.push(shade, shade, shade);
+    idx.push(n, n + 1, n + 2, n + 2, n + 1, n + 3);
+  };
+  const full = [u0, v0, u1, v0, u0, v1, u1, v1];
+  quad([-s, -s, t], [s, -s, t], [-s, s, t], [s, s, t], full, 1);
+  quad([s, -s, -t], [-s, -s, -t], [s, s, -t], [-s, s, -t], [u1, v0, u0, v0, u1, v1, u0, v1], 0.85);
+  if (t > 0) {
+    const W = ATLAS_PIXELS.width, data = ATLAS_PIXELS.data;
+    const tx0 = (tile % ATLAS_COLS) * TILE, ty0 = Math.floor(tile / ATLAS_COLS) * TILE;
+    const solid = (x, y) => x >= 0 && y >= 0 && x < TILE && y < TILE && data[((ty0 + y) * W + tx0 + x) * 4 + 3] > 127;
+    const H = ATLAS_ROWS * TILE;
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      if (!solid(x, y)) continue;
+      // every face of this pixel's edge samples the pixel's own colour
+      const cu = (tx0 + x + 0.5) / W, cv = 1 - (ty0 + y + 0.5) / H;
+      const uvs = [cu, cv, cu, cv, cu, cv, cu, cv];
+      const x0 = -s + x * px, x1 = x0 + px, y1 = s - y * px, y0 = y1 - px;
+      if (!solid(x - 1, y)) quad([x0, y0, -t], [x0, y0, t], [x0, y1, -t], [x0, y1, t], uvs, 0.7);
+      if (!solid(x + 1, y)) quad([x1, y0, t], [x1, y0, -t], [x1, y1, t], [x1, y1, -t], uvs, 0.7);
+      if (!solid(x, y - 1)) quad([x0, y1, t], [x1, y1, t], [x0, y1, -t], [x1, y1, -t], uvs, 0.95);
+      if (!solid(x, y + 1)) quad([x0, y0, -t], [x1, y0, -t], [x0, y0, t], [x1, y0, t], uvs, 0.6);
+    }
+  }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos.concat(pos), 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv.concat(uv), 2));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col.concat(col), 3));
-  g.setIndex([0, 1, 2, 2, 1, 3, 4 + 0, 4 + 2, 4 + 1, 4 + 2, 4 + 3, 4 + 1]);
-  return g;
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  if (ATLAS_PIXELS) ITEM_GEO_CACHE.set(key, g);
+  return ITEM_GEO_CACHE.has(key) ? g.clone() : g;
 }
 
 function isCubeItem(id) { return id < 256 && BLOCKS[id] && BLOCKS[id].model === 'cube'; }

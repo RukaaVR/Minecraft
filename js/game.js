@@ -9,9 +9,11 @@ attribute vec4 light;
 varying vec2 vUv;
 varying vec4 vLight;
 varying float vDist;
+varying vec3 vWorldPos;
 void main() {
   vUv = uv;
   vLight = light;
+  vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vDist = length(mv.xyz);
   gl_Position = projectionMatrix * mv;
@@ -25,9 +27,11 @@ uniform float fogFar;
 uniform float opacity;
 uniform float alphaTest;
 uniform float minLight;
+uniform vec4 heldLight; // xyz: position of a light held by the player, w: its level (0-15)
 varying vec2 vUv;
 varying vec4 vLight;
 varying float vDist;
+varying vec3 vWorldPos;
 float curve(float l) { return max(0.03, pow(0.8, 15.0 - l * 15.0)); }
 void main() {
   vec4 t = texture2D(map, vUv);
@@ -35,8 +39,10 @@ void main() {
   float face = floor(vLight.w / 16.0 + 0.001);
   float shade = face < 1.5 ? 0.8 : face < 2.5 ? 0.5 : face < 3.5 ? 1.0 : face < 5.5 ? 0.65 : 1.0;
   float sky = curve(vLight.x) * daylight;
-  float blk = curve(vLight.y);
-  if (vLight.y <= 0.0) blk = 0.0;
+  float bl = vLight.y;
+  if (heldLight.w > 0.0) bl = max(bl, max(0.0, heldLight.w - distance(vWorldPos, heldLight.xyz)) / 15.0);
+  float blk = curve(bl);
+  if (bl <= 0.0) blk = 0.0;
   vec3 lc = max(vec3(sky), vec3(blk, blk * 0.92, blk * 0.78));
   lc = max(lc, vec3(minLight));
   vec3 c = t.rgb * lc * vLight.z * shade;
@@ -55,6 +61,7 @@ function makeChunkMaterial(atlas, o = {}) {
       opacity: { value: o.opacity ?? 1 },
       alphaTest: { value: o.alphaTest ?? 0 },
       minLight: { value: 0.02 },
+      heldLight: { value: new THREE.Vector4() },
     },
     vertexShader: CHUNK_VERT,
     fragmentShader: CHUNK_FRAG,
@@ -91,6 +98,7 @@ class Game {
     this.handCamera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 10);
 
     this.atlasCanvas = buildAtlas();
+    ATLAS_PIXELS = this.atlasCanvas.getContext('2d').getImageData(0, 0, this.atlasCanvas.width, this.atlasCanvas.height);
     const atlas = new THREE.CanvasTexture(this.atlasCanvas);
     atlas.magFilter = THREE.NearestFilter;
     atlas.minFilter = THREE.NearestFilter;

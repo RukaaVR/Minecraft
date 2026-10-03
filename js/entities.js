@@ -645,7 +645,7 @@ class Particles {
     for (let i = 0; i < n; i++) {
       const geo = id < 256 && BLOCKS[id].model === 'cube'
         ? blockGeometry(id, 0.12, [Math.random() * 0.75, Math.random() * 0.75, 0.25])
-        : itemGeometry(id, 0.12);
+        : itemGeometry(id, 0.12, { flat: true });
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x + 0.2 + Math.random() * 0.6, y + 0.2 + Math.random() * 0.6, z + 0.2 + Math.random() * 0.6);
       this.game.scene.add(m);

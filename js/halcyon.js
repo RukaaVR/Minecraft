@@ -115,7 +115,7 @@ class HalcyonRenderer {
     this.u = {
       frameTimeCounter: U(0), sunDir: U(new THREE.Vector3(0, 1, 0)), moonDir: U(new THREE.Vector3(0, -1, 0)),
       lightDir: U(new THREE.Vector3(0, 1, 0)), sunColor: U(new THREE.Vector3()), lightColor: U(new THREE.Vector3()),
-      skyAmbient: U(new THREE.Vector3()), moonPhase: U(0), rainStrength: U(0), far: U(96), isEyeInWater: U(0),
+      skyAmbient: U(new THREE.Vector3()), heldLight: U(new THREE.Vector4()), moonPhase: U(0), rainStrength: U(0), far: U(96), isEyeInWater: U(0),
       eyeSky: U(1), dimension: U(0), fogColorLin: U(new THREE.Vector3(0.05, 0.005, 0.004)),
       skyLUT: U(null), shadowtex: U(null), shadowMatrix: U(new THREE.Matrix4()),
     };
@@ -244,6 +244,7 @@ void main() {
   vec3 dir = normalize(playerPos);
   float dither = ign(gl_FragCoord.xy);
   float skylight = vLight.x, blocklight = vLight.y;
+  if (heldLight.w > 0.0) blocklight = max(blocklight, max(0.0, heldLight.w - distance(vWorld, heldLight.xyz)) / 15.0);
   if ((mat == MAT_GRASS && normalW.y > 0.5) || mat == MAT_FOLIAGE) {
     float n = noise2D(vWorld.xz / 22.0) * 0.65 + noise2D(vWorld.xz / 7.0) * 0.35;
     float v = (n - 0.5) * 0.35 * GRASS_VARIATION;

@@ -318,3 +318,10 @@ kbd { color: var(--ink); background: #222; border: 1px solid #555; padding: 0 4p
 .prof-cell { background: #8b8b8b; border: 2px solid #373737; padding: 6px; text-align: center; }
 .prof-val { font-size: 26px; text-shadow: 2px 2px 0 #222; }
 .prof-key { color: #222; font-size: 16px; }
+
+/* Cinematic vignette; turns red and pulses on low health (--hurt set by visuals.js) */
+#vignette { position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.32) 100%); }
+#vignette::after { content: ''; position: absolute; inset: 0; opacity: var(--hurt, 0);
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(170, 0, 0, 0.75) 100%); }
+.pp-3d { height: 96px; width: 92px; image-rendering: auto; }

@@ -141,6 +141,7 @@ uniform vec3 lightDir;
 uniform vec3 sunColor;
 uniform vec3 lightColor;
 uniform vec3 skyAmbient;
+uniform vec4 heldLight;
 uniform int moonPhase;
 uniform float rainStrength;
 uniform float far;
