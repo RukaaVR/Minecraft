@@ -86,38 +86,12 @@ function novaTag(lines, scale = 0.3) {
 // ---------------------------------------------------------------- bot models
 function buildBotModel(info) {
   const team = info.team >= 0 && info.team < 4 ? NOVA_TEAMS[info.team] : null;
-  const v = info.skin | 0;
+  const v = (info.skin | 0) + 1;
   const key = `bot_${team ? 't' + info.team : 'r'}_${v}`;
-  const r0 = mulberry32(v * 7919 + 13);
-  const skins = [[196, 140, 110], [230, 190, 160], [140, 95, 70], [100, 65, 45], [245, 205, 180]];
-  const hairs = [[70, 45, 25], [20, 20, 20], [200, 160, 60], [150, 60, 30], [90, 90, 90], [230, 230, 230], [60, 30, 120]];
-  const skinC = skins[Math.floor(r0() * skins.length)], hair = hairs[Math.floor(r0() * hairs.length)];
-  const shirt = team ? team.shirt : [Math.floor(40 + r0() * 200), Math.floor(40 + r0() * 200), Math.floor(40 + r0() * 200)];
-  const pants = [Math.floor(30 + r0() * 90), Math.floor(30 + r0() * 90), Math.floor(60 + r0() * 120)];
-  const eye = [[60, 50, 140], [40, 120, 50], [90, 60, 30], [40, 40, 40]][Math.floor(r0() * 4)];
-  const skin = makeSkin(key, 64, 32, (ctx, rand) => {
-    paintBox(ctx, 0, 0, 8, 8, 8, skinC, rand, 12);
-    paintBox(ctx, 16, 16, 8, 12, 4, shirt, rand, 14);
-    paintBox(ctx, 40, 16, 4, 12, 4, (x, y) => (y < 4 ? shirt : skinC), rand, 12);
-    paintBox(ctx, 0, 16, 4, 12, 4, pants, rand, 14);
-    px(ctx, 8, 0, hair, 8, 8); px(ctx, 0, 8, hair, 8, 2 + (v % 3)); px(ctx, 16, 8, hair, 8, 2 + (v % 3)); px(ctx, 24, 8, hair, 8, 8);
-    px(ctx, 8, 8, hair, 8, 1 + (v % 2));
-    px(ctx, 9, 12, [255, 255, 255], 2, 1); px(ctx, 13, 12, [255, 255, 255], 2, 1);
-    px(ctx, 10, 12, eye); px(ctx, 13, 12, eye);
-    px(ctx, 10, 15, [Math.max(0, skinC[0] - 70), Math.max(0, skinC[1] - 70), Math.max(0, skinC[2] - 60)], 4, 1);
-    px(ctx, 0, 28, [60, 50, 50], 16, 4);
-  });
-  const root = new THREE.Group(), inner = new THREE.Group();
-  root.add(inner);
-  const mat = new THREE.MeshBasicMaterial({ map: skin.tex });
-  const W = 64, H = 32, parts = {};
-  parts.legL = part(inner, mat, skinBox(4, 12, 4, 0, 16, W, H), [-2, 12, 0], [0, -6, 0]);
-  parts.legR = part(inner, mat, skinBox(4, 12, 4, 0, 16, W, H), [2, 12, 0], [0, -6, 0]);
-  parts.body = part(inner, mat, skinBox(8, 12, 4, 16, 16, W, H), [0, 12, 0], [0, 6, 0]);
-  parts.armL = part(inner, mat, skinBox(4, 12, 4, 40, 16, W, H), [-6, 22, 0], [0, -4, 0]);
-  parts.armR = part(inner, mat, skinBox(4, 12, 4, 40, 16, W, H), [6, 22, 0], [0, -4, 0]);
-  parts.head = part(inner, mat, skinBox(8, 8, 8, 0, 0, W, H), [0, 24, 0], [0, 4, 0]);
-  return { root, inner, parts, mat, height: 1.8, width: 0.6, headY: 24 };
+  const skin = playerSkinTexture(key, outfitFor(v, team ? team.shirt : null), v * 13 + 7);
+  const model = buildHumanModel(skin);
+  model.phase = v * 0.7;
+  return model;
 }
 EXTRA_MODELS.bot = () => buildBotModel({ team: -1, skin: 0 });
 
@@ -168,6 +142,15 @@ MOB_INIT.bot = function (extra) {
 
 MOB_RENDER.bot = function () {
   if (this.npc === 'shop') return;
+  if (!this.npc && this.walkAmount > 0.3 && this.onGround !== false) {
+    this.stepPhase = (this.stepPhase || 0);
+    const ph = Math.floor(this.walkPhase / Math.PI);
+    if (ph !== this.stepPhase) {
+      this.stepPhase = ph;
+      const w = this.game.world, under = w.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y - 0.1), Math.floor(this.pos.z));
+      if (under && BLOCKS[under] && BLOCKS[under].sound) Sound.step(BLOCKS[under].sound, 0.7, this.pos);
+    }
+  }
   animateModel(this.model, 'player', this.walkPhase, this.walkAmount, 0, this.lookPitch || 0, this.swing);
 };
 
@@ -272,7 +255,7 @@ Object.assign(Mob.prototype, {
       const v = to.sub(from).normalize().multiplyScalar(40);
       v.x += (Math.random() - 0.5) * 2.4 / (this.difficulty || 1); v.y += (Math.random() - 0.5) * 1.4; v.z += (Math.random() - 0.5) * 2.4 / (this.difficulty || 1);
       g.spawnProjectile('arrow', from.addScaledVector(v.clone().normalize(), 0.8), v, { owner: this, damage: 4 + Math.floor(Math.random() * 3) });
-      Sound.noise(1500, 2, 0.15, 0.25);
+      Sound.bow(this.pos);
       return;
     }
     if (d < 3.1 && Math.abs(dy) < 2.5 && this.attackCooldown === 0) {
@@ -413,7 +396,7 @@ Object.assign(MOB_AI, {
           // Dig through the defense first, a block at a time
           const def = g.nwDefenseLeft(target.team);
           if (def) {
-            if (this.bedT > 0.9) { this.bedT = 0; g.particles.burst(def[0], def[1], def[2], g.world.getBlock(...def), 6); Sound.block('cloth', 0.4); g.changeBlock(def[0], def[1], def[2], B.AIR, { noUpdate: true }); }
+            if (this.bedT > 0.9) { this.bedT = 0; g.particles.burst(def[0], def[1], def[2], g.world.getBlock(...def), 6); Sound.dig('wool', this.pos); g.changeBlock(def[0], def[1], def[2], B.AIR, { noUpdate: true }); }
           } else if (this.bedT > 1.4) { this.bedT = 0; g.nwBreakBed(target.team, this.name); }
           this._locomote(dt, 0, 0, 0);
         } else { this.bedT = 0; this._botMove(dt, goal, 5.2, 1.5); }

@@ -590,7 +590,7 @@ Object.assign(Game.prototype, {
             const v = new THREE.Vector3(killer.pos.x, killer.pos.y + 1.1 + d * 0.04, killer.pos.z).sub(from).normalize().multiplyScalar(42);
             v.x += (Math.random() - 0.5) * 1.6; v.z += (Math.random() - 0.5) * 1.6;
             g.spawnProjectile('arrow', from.addScaledVector(v.clone().normalize(), 0.8), v, { owner: this, damage: 40 });
-            Sound.noise(1500, 2, 0.15, 0.25);
+            Sound.bow(this.pos);
           }
           return;
         }

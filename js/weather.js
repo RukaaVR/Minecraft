@@ -51,7 +51,10 @@ class Weather {
       if (this.bolt.life <= 0) { g.scene.remove(this.bolt.mesh); this.bolt.mesh.geometry.dispose(); this.bolt = null; }
     }
     this.updateDrops(dt);
-    if (this.rain > 0.05 && Math.random() < dt * 4 * this.rain) Sound.noise(5000 + Math.random() * 3000, 0.4, 0.08, 0.04 * this.rain, 'highpass');
+    // rain bed (none in deserts, softer indoors)
+    const dry = this.lines && this.lines.visible === false;
+    const roof = g.player && g.world && g.world.getLight(Math.floor(g.player.pos.x), Math.floor(g.player.pos.y + 1), Math.floor(g.player.pos.z)).sky < 12 ? 0.4 : 1;
+    Sound.setRain(dry ? 0 : this.rain * roof);
   }
 
   set(kind) {
@@ -80,7 +83,7 @@ class Weather {
     this.bolt = { mesh, life: 0.25 };
     this.flash = 1;
     const dist = Math.hypot(x - p.pos.x, z - p.pos.z);
-    setTimeout(() => { Sound.noise(90, 0.3, 2.5, 1.0, 'lowpass'); Sound.noise(400, 0.5, 0.6, 0.5); }, Math.min(3000, dist * 3));
+    Sound.thunder(Math.min(3, dist * 0.003));
     if (dist < 3) p.damage(5, 'lightning');
     for (const m of g.mobs.values()) {
       if (Math.hypot(m.pos.x - x, m.pos.z - z) < 3 && g.isAuthority) {

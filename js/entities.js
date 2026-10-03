@@ -115,7 +115,7 @@ class Mob {
       // Zombified piglins anger the whole group nearby
       for (const m of this.game.mobs.values()) if (m.type === this.type && m.pos.distanceTo(this.pos) < 24) m.angry = 30;
     }
-    Sound.mobHurt(this.type);
+    Sound.mobHurt(this.type, this.pos);
     if (this.health <= 0) this.deathTime = 0;
     return true;
   }
@@ -245,7 +245,7 @@ class Mob {
     this.ambient -= dt;
     if (this.ambient <= 0) {
       this.ambient = 8 + Math.random() * 20;
-      if (this.game.player.pos.distanceTo(this.pos) < 16) Sound.mob(this.type);
+      if (this.game.player.pos.distanceTo(this.pos) < 24) Sound.mob(this.type, this.pos);
     }
     if (this.pos.y < -30) this.deathTime = 99;
   }
@@ -578,6 +578,7 @@ class RemotePlayer {
     if (typeof s.s === 'number' && s.s !== this.lastSwingCount) { this.lastSwingCount = s.s; this.swing = 1; }
     const held = +s.h || 0;
     if (held !== this.held) this.setHeld(held);
+    if (Array.isArray(s.ar)) setModelArmor(this.model, s.ar.slice(0, 4).map((v) => (ITEMS[v] && ITEMS[v].armor ? v : 0)));
   }
   setHeld(id) {
     this.held = id;
@@ -598,6 +599,13 @@ class RemotePlayer {
     this.yaw += dy * Math.min(1, dt * 12);
     const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z) / Math.max(dt, 1e-4);
     this.walkPhase += moved * dt * 2.5;
+    // footsteps you can hear
+    this.stepAcc = (this.stepAcc || 0) + moved * dt;
+    if (this.stepAcc > 1.9 && !this.sneak && this.mode !== 'spectator') {
+      this.stepAcc = 0;
+      const w = this.game.world, under = w.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y - 0.1), Math.floor(this.pos.z));
+      if (under && BLOCKS[under].sound) Sound.step(BLOCKS[under].sound, 0.8, this.pos);
+    }
     this.walkAmount += (Math.min(1, moved / 3) - this.walkAmount) * Math.min(1, dt * 10);
     this.swing = Math.max(0, this.swing - dt * 4);
     this.hurtTime = Math.max(0, this.hurtTime - dt);
@@ -609,8 +617,8 @@ class RemotePlayer {
     m.parts.body.rotation.x = this.sneak ? 0.4 : 0;
     animateModel(m, 'player', this.walkPhase, this.walkAmount, 0, this.pitch, this.swing);
     const l = this.game.lightAt(this.pos.x, this.pos.y + 1.5, this.pos.z);
-    if (this.hurtTime > 0) m.mat.color.setRGB(Math.max(0.6, l), l * 0.3, l * 0.3);
-    else m.mat.color.setRGB(l, l, l);
+    if (this.hurtTime > 0) { m.mat.color.setRGB(Math.max(0.6, l), l * 0.3, l * 0.3); lightModelArmor(m, Math.max(0.6, l), l * 0.3, l * 0.3); }
+    else { m.mat.color.setRGB(l, l, l); lightModelArmor(m, l, l, l); }
   }
   rayHit(origin, dir, maxDist) {
     if (this.mode === 'spectator' || this.dim !== this.game.world.dim) return null;

@@ -337,7 +337,7 @@ Object.assign(Game.prototype, {
     const c = this.world.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE));
     if (c) c.dirty = true;
     this.net.send('bdata', { x, y: ly, z, d, w: this.world.dim });
-    Sound.noise(d.open ? 600 : 400, 2, 0.15, 0.4);
+    Sound.door(d.open, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
   },
 
   // Remove the other half of a door or bed
@@ -456,7 +456,7 @@ Object.assign(Game.prototype, {
       const power = enchLevel(held, 'power');
       const dmg = Math.max(1, Math.round(9 * f * (power ? 1 + 0.25 * (power + 1) : 1)));
       this.spawnProjectile('arrow', eye.clone().addScaledVector(dir, 0.4), dir.multiplyScalar(55 * f), { owner: 'player', damage: dmg });
-      Sound.noise(1500, 2, 0.2, 0.35);
+      Sound.bow();
       if (p.mode !== 'creative') {
         if (!enchLevel(held, 'infinity')) for (let i = 0; i < p.inventory.slots.length; i++) {
           const s = p.inventory.slots[i];
@@ -551,7 +551,7 @@ Object.assign(Game.prototype, {
     if (item && item.tool && item.tool.type === 'hoe' && (hit.id === B.GRASS || hit.id === B.DIRT || hit.id === B.PATH) && hit.normal[1] === 1 && w.getBlock(hit.x, hit.y + 1, hit.z) === B.AIR) {
       if (p.mode === 'adventure') return true;
       this.changeBlock(hit.x, hit.y, hit.z, B.FARMLAND);
-      Sound.block('gravel');
+      Sound.dig('gravel');
       this.doSwing();
       if (p.mode !== 'creative') this.damageHeld(1);
       return true;
@@ -560,7 +560,7 @@ Object.assign(Game.prototype, {
     if (item && held.id === ITEM.SEEDS) {
       if (hit.id === B.FARMLAND && hit.normal[1] === 1 && w.getBlock(hit.x, hit.y + 1, hit.z) === B.AIR && p.mode !== 'adventure') {
         this.changeBlock(hit.x, hit.y + 1, hit.z, B.WHEAT0);
-        Sound.block('grass');
+        Sound.place('grass');
         consume();
         this.doSwing();
       }
@@ -605,7 +605,7 @@ Object.assign(Game.prototype, {
         this.net.send('bdata', { x, y, z, d, w: w.dim });
         this.net.send('bdata', { x: hx, y, z: hz, d, w: w.dim });
       }
-      Sound.block('wood');
+      Sound.place('wood');
       consume();
       this.doSwing();
       return true;

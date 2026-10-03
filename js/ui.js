@@ -83,6 +83,7 @@ class UI {
   loadSettings() {
     try { Object.assign(this.game.settings, JSON.parse(localStorage.getItem('webcraft-settings-v2') || '{}')); } catch (e) { /* */ }
     Sound.volume = this.game.settings.volume;
+    Sound.setMusicVolume(this.game.settings.music ?? 0.5);
   }
   saveSettings() {
     try { localStorage.setItem('webcraft-settings-v2', JSON.stringify(this.game.settings)); } catch (e) { /* */ }
@@ -214,6 +215,7 @@ class UI {
     bindRange('opt-rd', 'renderDistance', (v) => `Render Distance: ${v} chunks`);
     bindRange('opt-sens', 'sensitivity', (v) => `Sensitivity: ${Math.round(v * 100)}%`);
     bindRange('opt-vol', 'volume', (v) => `Sound: ${v === 0 ? 'OFF' : Math.round(v * 100) + '%'}`, (v) => { Sound.volume = v; });
+    bindRange('opt-music', 'music', (v) => `Music: ${v === 0 ? 'OFF' : Math.round(v * 100) + '%'}`, (v) => { Sound.setMusicVolume(v); });
     $('opt-name').onchange = () => { this.game.settings.name = this.cleanName($('opt-name').value); $('opt-name').value = this.game.settings.name; this.saveSettings(); };
     $('btn-opt-done').onclick = () => this.showScreen(this.optionsBack || 'title');
     $('btn-opt-shaders').onclick = () => {
@@ -468,6 +470,7 @@ class UI {
     set('opt-rd', s.renderDistance, `Render Distance: ${s.renderDistance} chunks`);
     set('opt-sens', s.sensitivity, `Sensitivity: ${Math.round(s.sensitivity * 100)}%`);
     set('opt-vol', s.volume, `Sound: ${s.volume === 0 ? 'OFF' : Math.round(s.volume * 100) + '%'}`);
+    set('opt-music', s.music ?? 0.5, `Music: ${(s.music ?? 0.5) === 0 ? 'OFF' : Math.round((s.music ?? 0.5) * 100) + '%'}`);
     $('opt-name').value = s.name;
     const g = this.game;
     const names = { OFF: 'OFF', LOW: 'Halcyon (Low)', MEDIUM: 'Halcyon (Medium)', HIGH: 'Halcyon (High)', ULTRA: 'Halcyon (Ultra)' };
@@ -713,7 +716,7 @@ class UI {
   openChest(x, y, z) {
     const w = this.game.world;
     if (!w.getData(x, y, z) || !w.getData(x, y, z).slots) w.setData(x, y, z, Object.assign(w.getData(x, y, z) || {}, { type: 'chest', slots: new Array(27).fill(0) }));
-    Sound.noise(400, 1, 0.3, 0.3);
+    Sound.chest(true, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
     this.openGui('chest', { pos: [x, y, z] });
   }
 
@@ -741,7 +744,7 @@ class UI {
     if (this.gui.kind === 'enchant') { give(this.gui.item); give(this.gui.lapis); }
     give(this.cursor);
     this.cursor = null;
-    if (this.gui.kind === 'chest') Sound.noise(350, 1, 0.3, 0.25);
+    if (this.gui.kind === 'chest') Sound.chest(false, this.gui.pos ? { x: this.gui.pos[0] + 0.5, y: this.gui.pos[1] + 0.5, z: this.gui.pos[2] + 0.5 } : undefined);
     this.gui = null;
     $('gui').hidden = true;
     $('cursor-item').hidden = true;
@@ -956,12 +959,14 @@ class UI {
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     const blit = (sx, sy, sw, sh, dx, dy) => ctx.drawImage(skin, sx, sy, sw, sh, dx * k, dy * k, sw * k, sh * k);
-    blit(8, 8, 8, 8, 4, 0);    // head
-    blit(20, 20, 8, 12, 4, 8); // body
-    blit(44, 20, 4, 12, 0, 8); // arms
-    blit(44, 20, 4, 12, 12, 8);
-    blit(4, 20, 4, 12, 4, 20); // legs
-    blit(4, 20, 4, 12, 8, 20);
+    blit(8, 8, 8, 8, 4, 0);     // head
+    blit(40, 8, 8, 8, 4, 0);    // hair layer
+    blit(20, 20, 8, 12, 4, 8);  // body
+    blit(20, 36, 8, 12, 4, 8);  // hood layer
+    blit(44, 20, 4, 12, 0, 8);  // right arm
+    blit(36, 52, 4, 12, 12, 8); // left arm
+    blit(4, 20, 4, 12, 4, 20);  // right leg
+    blit(20, 52, 4, 12, 8, 20); // left leg
     c.className = 'pp-img';
     return c;
   }

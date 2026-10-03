@@ -184,7 +184,7 @@ Object.assign(Game.prototype, {
       if (isWater(fh.id)) by = fh.y + fluidHeight(fh.id) - 0.3;
       else if (fh.normal[1] !== 1) return true;
       this.boats.push(new Boat(this, bx, by, bz, p.yaw));
-      Sound.block('wood');
+      Sound.place('wood');
       consume(); this.doSwing(); this.useCooldown = 0.4;
       return true;
     }

@@ -113,7 +113,7 @@ class Game {
     this.smokeGeo = new THREE.BoxGeometry(1, 1, 1);
     this.smokeMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.6, depthWrite: false });
 
-    this.settings = { renderDistance: 6, sensitivity: 1, fov: 70, volume: 0.6, name: 'Player' + Math.floor(Math.random() * 900 + 100), shaders: 'MEDIUM' };
+    this.settings = { renderDistance: 6, sensitivity: 1, fov: 70, volume: 0.6, music: 0.5, name: 'Player' + Math.floor(Math.random() * 900 + 100), shaders: 'MEDIUM' };
     this.world = null;
     this.player = null;
     this.net = new Net(this);
@@ -555,7 +555,7 @@ class Game {
   }
 
   explosionEffects(x, y, z, power, authority) {
-    Sound.explode();
+    Sound.explode({ x, y, z });
     this.particles.smoke(x, y, z, 40);
     const c = new THREE.Vector3(x, y, z);
     const hurt = (pos, h) => {
@@ -641,7 +641,7 @@ class Game {
         if (ent.hurt(dmg, dir.x, dir.z, null) && ent.dead) this.onMobKilled(ent, null);
       } else {
         ent.hurtTime = 0.4;
-        Sound.mobHurt(ent.type);
+        Sound.mobHurt(ent.type, ent.pos);
         this.net.send('hitmob', { id: ent.id, dmg, kx: dir.x, kz: dir.z });
       }
     } else if (ent instanceof RemotePlayer) {
@@ -703,7 +703,7 @@ class Game {
     const info = breakInfo(hit.id, p.heldStack, p);
     this.mining.progress += dt / info.time;
     this.mining.soundT -= dt;
-    if (this.mining.soundT <= 0) { this.mining.soundT = 0.25; Sound.block(BLOCKS[hit.id].sound, 0.4); this.doSwing(); }
+    if (this.mining.soundT <= 0) { this.mining.soundT = 0.25; Sound.dig(BLOCKS[hit.id].sound, { x: hit.x + 0.5, y: hit.y + 0.5, z: hit.z + 0.5 }); this.doSwing(); }
     if (this.mining.progress >= 1) {
       this.breakBlock(hit, info.harvest);
       if (info.right && info.time > 0.06) this.damageHeld(1);
@@ -721,7 +721,7 @@ class Game {
     if (id === B.AIR || BLOCKS[id].hardness < 0 && this.player.mode !== 'creative') return;
     if (id === B.BEDROCK && this.player.mode !== 'creative') return;
     if (this.player.mode === 'survival') this.dropBlockItems(hit.x, hit.y, hit.z, id, harvest);
-    if (id === B.GLASS) Sound.glassBreak(); else Sound.block(BLOCKS[id].sound);
+    if (id === B.GLASS) Sound.glassBreak(); else Sound.block(BLOCKS[id].sound, 1, { x: hit.x + 0.5, y: hit.y + 0.5, z: hit.z + 0.5 });
     this.particles.burst(hit.x, hit.y, hit.z, id);
     this.changeBlock(hit.x, hit.y, hit.z, B.AIR);
   }
@@ -782,7 +782,7 @@ class Game {
       const b = BLOCKS[bid];
       const how = this.placementFor(bid, hit, tx, ty, tz);
       if (!how) return;
-      if (how.done) { Sound.block(b.sound); this.doSwing(); this.useCooldown = 0.2; if (p.mode === 'survival') p.inventory.removeFrom(p.selected, 1); return; }
+      if (how.done) { Sound.place(b.sound); this.doSwing(); this.useCooldown = 0.2; if (p.mode === 'survival') p.inventory.removeFrom(p.selected, 1); return; }
       if (b.solid && p.intersectsBlock(tx, ty, tz)) return;
       for (const m of this.mobs.values()) {
         if (b.solid && m.pos.x + m.w / 2 > tx && m.pos.x - m.w / 2 < tx + 1 && m.pos.z + m.w / 2 > tz && m.pos.z - m.w / 2 < tz + 1 && m.pos.y < ty + 1 && m.pos.y + m.h > ty) return;
@@ -796,7 +796,7 @@ class Game {
       if (bid === B.CHEST) this.world.setData(tx, ty, tz, Object.assign(this.world.getData(tx, ty, tz) || {}, { type: 'chest', slots: new Array(27).fill(0) }));
       if (bid === B.FURNACE) this.world.setData(tx, ty, tz, Object.assign(this.world.getData(tx, ty, tz) || {}, { type: 'furnace', slots: [0, 0, 0], burn: 0, burnMax: 0, cook: 0 }));
       if (b.facing || bid === B.CHEST || bid === B.FURNACE) this.net.send('bdata', { x: tx, y: ty, z: tz, d: this.world.getData(tx, ty, tz), w: this.world.dim });
-      Sound.block(b.sound);
+      Sound.place(b.sound, { x: tx + 0.5, y: ty + 0.5, z: tz + 0.5 });
       this.doSwing();
       this.useCooldown = 0.2;
       if (p.mode === 'survival') p.inventory.removeFrom(p.selected, 1);
@@ -1094,7 +1094,7 @@ class Game {
       if (dim !== this.world.dim) { this.worldFor(dim).applyRemoteEdit(x, y, z, id); return; }
       const old = this.world.getBlock(x, y, z);
       if (id === B.AIR && old !== B.AIR && this.world.isLoaded(x, z)) {
-        if (this.player.pos.distanceTo(new THREE.Vector3(x, y, z)) < 24) { this.particles.burst(x, y, z, old, 6); Sound.block(BLOCKS[old].sound, 0.5); }
+        if (this.player.pos.distanceTo(new THREE.Vector3(x, y, z)) < 24) { this.particles.burst(x, y, z, old, 6); Sound.block(BLOCKS[old].sound, 0.8, { x: x + 0.5, y: y + 0.5, z: z + 0.5 }); }
       }
       this.world.applyRemoteEdit(x, y, z, id);
       if (this.isAuthority) { this.scheduleAround(x, y, z); this.redstoneNotify(x, y, z, old, id); }
@@ -1221,6 +1221,7 @@ class Game {
       m: p.mode,
       s: this.swingCount % 1000,
       k: p.sneaking ? 1 : 0,
+      ar: p.armor.slots.map((s) => (s ? s.id : 0)),
     };
     pres.d = this.world.dim;
     if (this.net.isHost) {
@@ -1391,7 +1392,15 @@ class Game {
     const loading = !this.isReady();
     world.update(centres, this.settings.renderDistance, loading ? 14 : 7);
 
+    // Sound follows the camera; music and cave ambience tick here
+    const cam = this.camera.position;
+    Sound.listener = { x: cam.x, y: cam.y, z: cam.z, yaw: p.yaw };
+    if (Sound.music) {
+      const l = this.mode === 'play' ? world.getLight(Math.floor(p.pos.x), Math.floor(p.pos.y + 1), Math.floor(p.pos.z)) : null;
+      Sound.music.update(dt, !!(l && l.sky < 3 && p.pos.y < 50 && world.dim === 0));
+    }
     if (this.mode === 'menu') {
+      Sound.setRain(0);
       this.panoramaAngle += dt * 0.03;
       p.yaw = this.panoramaAngle;
       p.pitch = -0.15;
@@ -1638,6 +1647,9 @@ class Game {
       if (p.riding) { lm.parts.legL.rotation.x = lm.parts.legR.rotation.x = -1.4; lm.root.position.y -= 0.45; lm.inner.rotation.y = p.riding.yaw + Math.PI; }
       const l = this.lightAt(p.pos.x, p.pos.y + 1.5, p.pos.z);
       lm.mat.color.setRGB(l, l, l);
+      lightModelArmor(lm, l, l, l);
+      setModelArmor(lm, p.armor.slots.map((s) => (s ? s.id : 0)));
+      setModelHeld(lm, p.heldStack ? p.heldStack.id : 0, this.entityMat);
     }
     const targetFov = this.settings.fov + (p.sprinting ? 10 : 0) + (p.flying && p.sprinting ? 5 : 0);
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {

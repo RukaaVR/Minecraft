@@ -129,8 +129,8 @@ Object.assign(Game.prototype, {
     const before = xpLevel(p.xp).level;
     p.xp += n;
     const after = xpLevel(p.xp).level;
-    Sound.tone(1100 + Math.random() * 600, 0.08, 0.12, 'sine', 300);
-    if (after > before && after % 5 === 0) Sound.tone(520, 0.6, 0.25, 'triangle', 520);
+    Sound.xp();
+    if (after > before && after % 5 === 0) Sound.levelUp();
   },
   updateOrbs(dt) {
     for (let i = this.orbs.length - 1; i >= 0; i--) {

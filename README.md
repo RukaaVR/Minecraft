@@ -69,7 +69,9 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 - Peaceful, easy, normal and hard difficulty
 - Dropped items, item pickup, Q to drop, falling sand and gravel, priming TNT with flint and steel
 - Chat and commands: `/gamemode`, `/time set`, `/tp`, `/give`, `/summon`, `/locate village|stronghold|fortress`, `/weather`, `/xp`, `/enchant`, `/kill`, `/clear`, `/spawnpoint`, `/difficulty`, `/seed`, `/help`
-- Third-person view (F5), debug screen (F3), hidden HUD (F1), day/night cycle, clouds, stars, and sounds generated in code
+- Third-person view (F5), debug screen (F3), hidden HUD (F1), day/night cycle, clouds and stars
+- **Player model**: a hand-drawn 64×64 skin with a second layer (hair tufts and a hood), idle arm sway, armour shown on the body, and held items in third person. Bots wear the same model with their own hair, skin tone and outfit, and team colours in team games.
+- **Sound**: everything is synthesized, with no audio files. Material footsteps and digging, a room reverb, left/right panning and distance falloff, voiced mob sounds, plucked bow strings, door and chest creaks, thunder, a rain bed, cave ambience, and generative piano music with its own volume slider.
 - Several saved worlds, each autosaved in the browser
 
 ## Controls
@@ -121,7 +123,8 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/net.js` | Multiplayer protocol over a claude.ai room or a WebSocket server |
 | `js/game.js` | Game rules, mining, combat, explosions, furnaces, spawning, commands, rendering |
 | `js/ui.js` | Menus, HUD, chat, inventory screens, input |
-| `js/sound.js` | Sound effects generated with WebAudio |
+| `js/sound.js` | Synthesized sound effects, reverb, spatial audio and generative music |
+| `js/skins.js` | The player skin's pixel art, outfits, the layered player model, armour on the model |
 | `server/server.js` | Multiplayer server and static file host |
 
 ## Not in this version
