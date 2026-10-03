@@ -10,6 +10,8 @@ A Minecraft-style game that runs in the browser: survival, creative, adventure a
 | Multiplayer server | `npm install`, then `npm start`. Open http://localhost:25565, or use **Multiplayer → Direct Connect** with `localhost:25565`. Friends on your network use your IP address. |
 | Shared claude.ai page | Open the world, then choose **Pause → Open to Friends**. Friends who have the page open see it under **Multiplayer → Friends' worlds**, or can join with the code. |
 
+One-file version: `python3 tools/build_html.py` writes `dist/WebCraft.html` (about 460 KB with [esbuild](https://esbuild.github.io/) on your PATH for minifying), which you can double-click to play offline. Live friend multiplayer needs the claude.ai page; the file can still join a WebCraft server.
+
 Server options: `npm start -- --seed=hello --mode=creative --difficulty=hard --port=25565 --name="My Server"`. The server saves the world to `server/world.json`.
 
 ## Nova Network (minigames with bots)
