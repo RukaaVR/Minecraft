@@ -103,7 +103,7 @@ class World {
     if (y < 0) return { sky: 0, block: 0 };
     const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
     const chunk = this.chunks.get(World.key(cx, cz));
-    const top = this.dim === 1 ? 0 : 15;
+    const top = this.dim >= 1 ? 0 : 15;
     if (!chunk || !chunk.light) return { sky: top, block: 0 };
     if (y >= chunk.lightH) return { sky: top, block: 0 };
     const v = chunk.light[(y * CHUNK_SIZE + (z - cz * CHUNK_SIZE)) * CHUNK_SIZE + (x - cx * CHUNK_SIZE)];
@@ -169,26 +169,42 @@ class World {
     let h = SEA_LEVEL + 2 + continental * 14 + hills * 9 + detail * 3 + mountains;
     h = Math.max(4, Math.min(WORLD_HEIGHT - 12, Math.floor(h)));
     const temperature = n3.fbm2D(x / 500 + 50, z / 500 - 50, 2);
-    return { height: h, desert: temperature > 0.28 };
+    const humidity = n2.fbm2D(x / 420 - 30, z / 420 + 70, 2);
+    let biome;
+    if (temperature > 0.28) biome = 'desert';
+    else if (temperature < -0.32) biome = 'snowy';
+    else if (temperature < -0.12) biome = 'taiga';
+    else if (humidity > 0.22) biome = 'birch';
+    else if (humidity > 0.0) biome = 'forest';
+    else biome = 'plains';
+    return { height: h, desert: biome === 'desert', biome };
+  }
+
+  // Tree density per biome
+  static treeDensity(biome) {
+    return { plains: 0.003, forest: 0.035, birch: 0.03, taiga: 0.03, snowy: 0.014, desert: 0.004 }[biome] || 0.01;
   }
 
   generateChunk(cx, cz) {
     if (this.dim === 1) return this.generateNether(cx, cz);
+    if (this.dim === 2) return this.generateEnd(cx, cz);
     const chunk = new Chunk(cx, cz);
     const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
     const heights = new Int32Array(CHUNK_SIZE * CHUNK_SIZE);
     const deserts = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+    const biomes = new Array(CHUNK_SIZE * CHUNK_SIZE);
     let maxY = SEA_LEVEL + 1;
     const seed = this.seed;
 
     for (let z = 0; z < CHUNK_SIZE; z++) {
       for (let x = 0; x < CHUNK_SIZE; x++) {
         const wx = ox + x, wz = oz + z;
-        const { height: h, desert } = this.columnInfo(wx, wz);
+        const { height: h, desert, biome } = this.columnInfo(wx, wz);
         heights[z * CHUNK_SIZE + x] = h;
         deserts[z * CHUNK_SIZE + x] = desert ? 1 : 0;
+        biomes[z * CHUNK_SIZE + x] = biome;
         const beach = h <= SEA_LEVEL + 1;
-        const snowy = h > 78;
+        const snowy = h > 78 || biome === 'snowy';
         for (let y = 0; y <= Math.max(h, SEA_LEVEL); y++) {
           let id;
           if (y === 0 || (y < 3 && hash3(wx, y, wz, seed) < 0.5)) id = B.BEDROCK;
@@ -207,6 +223,8 @@ class World {
             else if (r < 0.0205 && y < 32) id = B.GOLD_ORE;
             else if (r < 0.022 && y < 16) id = B.DIAMOND_ORE;
             else if (r < 0.0226 && h > 72 && y > 40) id = B.EMERALD_ORE;
+            else if (r >= 0.0226 && r < 0.0234 && y < 32) id = B.LAPIS_ORE;
+            else if (r >= 0.0234 && r < 0.0248 && y < 16) id = B.REDSTONE_ORE;
             else if (r > 0.995) id = B.GRAVEL;
           }
           if (id !== B.WATER && id !== B.BEDROCK && y < h - 1 && y > 3) {
@@ -217,8 +235,12 @@ class World {
           chunk.set(x, y, z, id);
         }
         // Surface plants
-        if (!desert && h > SEA_LEVEL && chunk.get(x, h, z) === B.GRASS) {
-          const r = hash3(wx, 7, wz, seed + 555);
+        const top = chunk.get(x, h, z);
+        if ((top === B.SAND || top === B.GRASS) && h === SEA_LEVEL + 1 && hash3(wx, 9, wz, seed + 77) < 0.04) {
+          const tall = 1 + Math.floor(hash3(wx, 10, wz, seed) * 3);
+          for (let i = 1; i <= tall; i++) chunk.set(x, h + i, z, B.SUGAR_CANE);
+        } else if (!desert && h > SEA_LEVEL && top === B.GRASS) {
+          const r = hash3(wx, 7, wz, seed + 555) * (biome === 'forest' || biome === 'birch' ? 0.7 : biome === 'taiga' ? 1.6 : 1);
           if (r < 0.12) chunk.set(x, h + 1, z, B.TALL_GRASS);
           else if (r < 0.13) chunk.set(x, h + 1, z, B.DANDELION);
           else if (r < 0.137) chunk.set(x, h + 1, z, B.POPPY);
@@ -237,15 +259,34 @@ class World {
       for (let x = -R; x < CHUNK_SIZE + R; x++) {
         const wx = ox + x, wz = oz + z;
         const r = hash3(wx, 0, wz, seed + 31337);
-        if (r > 0.012) continue;
+        if (r > 0.035) continue;
         if (villages.length && inVillage(wx, wz)) continue;
-        let h, desert;
+        let h, desert, biome;
         if (x >= 0 && z >= 0 && x < CHUNK_SIZE && z < CHUNK_SIZE) {
-          h = heights[z * CHUNK_SIZE + x]; desert = deserts[z * CHUNK_SIZE + x] === 1;
+          h = heights[z * CHUNK_SIZE + x]; desert = deserts[z * CHUNK_SIZE + x] === 1; biome = biomes[z * CHUNK_SIZE + x];
         } else {
-          const info = this.columnInfo(wx, wz); h = info.height; desert = info.desert;
+          const info = this.columnInfo(wx, wz); h = info.height; desert = info.desert; biome = info.biome;
         }
-        if (h <= SEA_LEVEL + 1 || h > 76) continue;
+        if (r > World.treeDensity(biome)) continue;
+        if (h <= SEA_LEVEL + 1 || h > 82) continue;
+        if (biome === 'taiga' || biome === 'snowy' || (h > 76 && !desert)) {
+          // Spruce: tall trunk with a cone of needles
+          const trunk = 6 + Math.floor(hash3(wx, 2, wz, seed) * 4);
+          const top = h + trunk;
+          for (let ly = top + 1, k = 0; ly >= h + 3; ly--, k++) {
+            const rad = k === 0 ? 0 : k === 1 ? 1 : (k % 2 === 0 ? Math.min(3, 1 + (k >> 2)) : Math.min(2, (k >> 2)));
+            for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
+              if (Math.abs(dx) + Math.abs(dz) > rad + (rad > 1 ? 1 : 0)) continue;
+              this._put(chunk, x + dx, ly, z + dz, B.SPRUCE_LEAVES, false);
+            }
+          }
+          for (let i = 1; i <= trunk; i++) this._put(chunk, x, h + i, z, B.SPRUCE_LOG, true);
+          if (x >= 0 && z >= 0 && x < CHUNK_SIZE && z < CHUNK_SIZE) chunk.set(x, h, z, B.DIRT);
+          maxY = Math.max(maxY, top + 3);
+          continue;
+        }
+        const birch = biome === 'birch' || (biome === 'forest' && hash3(wx, 3, wz, seed) < 0.2);
+        const LOGB = birch ? B.BIRCH_LOG : B.LOG, LEAF = birch ? B.BIRCH_LEAVES : B.LEAVES;
         if (desert) {
           if (r > 0.004) continue;
           const tall = 1 + Math.floor(hash3(wx, 1, wz, seed) * 3);
@@ -253,24 +294,24 @@ class World {
           maxY = Math.max(maxY, h + tall + 2);
           continue;
         }
-        const trunk = 4 + Math.floor(hash3(wx, 2, wz, seed) * 3);
+        const trunk = (birch ? 5 : 4) + Math.floor(hash3(wx, 2, wz, seed) * 3);
         const top = h + trunk;
         for (let ly = top - 2; ly <= top + 1; ly++) {
           const rad = ly >= top ? 1 : 2;
           for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
             if (rad === 2 && Math.abs(dx) === 2 && Math.abs(dz) === 2 && hash3(wx + dx, ly, wz + dz, seed) < 0.6) continue;
             if (ly === top + 1 && Math.abs(dx) === 1 && Math.abs(dz) === 1) continue;
-            this._put(chunk, x + dx, ly, z + dz, B.LEAVES, false);
+            this._put(chunk, x + dx, ly, z + dz, LEAF, false);
           }
         }
-        for (let i = 1; i <= trunk; i++) this._put(chunk, x, h + i, z, B.LOG, true);
+        for (let i = 1; i <= trunk; i++) this._put(chunk, x, h + i, z, LOGB, true);
         if (x >= 0 && z >= 0 && x < CHUNK_SIZE && z < CHUNK_SIZE) chunk.set(x, h, z, B.DIRT);
         maxY = Math.max(maxY, top + 3);
       }
     }
 
-    // Villages
-    for (const [x, y, z, id] of Villages.blocksForChunk(this, cx, cz)) {
+    // Villages and the stronghold
+    for (const [x, y, z, id] of Villages.blocksForChunk(this, cx, cz).concat(Structures.blocksForChunk(this, cx, cz))) {
       chunk.set(x - ox, y, z - oz, id);
       if (y + 2 > maxY) maxY = y + 2;
     }
@@ -345,7 +386,37 @@ class World {
         this._put(chunk, gx, gy, gz, B.GLOWSTONE, false);
       }
     }
+    for (const [x, y, z, id] of Structures.blocksForChunk(this, cx, cz)) chunk.set(x - ox, y, z - oz, id);
     return this._finishChunk(chunk, WORLD_HEIGHT);
+  }
+
+  // The End: a floating island of end stone with obsidian pillars around the centre.
+  generateEnd(cx, cz) {
+    const chunk = new Chunk(cx, cz);
+    const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
+    const n = this.noise2;
+    let maxY = 1;
+    for (let z = 0; z < CHUNK_SIZE; z++) for (let x = 0; x < CHUNK_SIZE; x++) {
+      const wx = ox + x, wz = oz + z;
+      const r = Math.hypot(wx, wz);
+      const nn = n.noise2D(wx / 40, wz / 40);
+      const edge = 84 + nn * 14;
+      if (r < edge) {
+        const t = r / edge;
+        const top = Math.floor(60 + nn * 3 - t * t * 8);
+        const bottom = Math.floor(60 - (1 - t * t) * 34 + nn * 5);
+        for (let y = Math.max(1, bottom); y <= top; y++) chunk.set(x, y, z, B.END_STONE);
+        maxY = Math.max(maxY, top + 2);
+      }
+      for (const pl of Structures.END_PILLARS) {
+        if (Math.hypot(wx - pl.x, wz - pl.z) <= pl.r + 0.5) {
+          for (let y = 50; y <= pl.h; y++) chunk.set(x, y, z, B.OBSIDIAN);
+          if (wx === pl.x && wz === pl.z) chunk.set(x, pl.h + 1, z, B.BEDROCK);
+          maxY = Math.max(maxY, pl.h + 3);
+        }
+      }
+    }
+    return this._finishChunk(chunk, Math.min(WORLD_HEIGHT, maxY));
   }
 
   // Same density test as generateNether, for blocks outside the chunk being built.
@@ -403,7 +474,7 @@ class World {
     // Sky light: straight down until something stops it, then flood fill.
     let head = 0, tail = 0;
     const qlen = q.length;
-    const noSky = this.dim === 1;
+    const noSky = this.dim >= 1;
     for (let rz = 0; rz < RW && !noSky; rz++) for (let rx = 0; rx < RW; rx++) {
       let y = H - 1;
       while (y >= 0 && LIGHT_PASS[ids[(y * RW + rz) * RW + rx]] === 1) {
@@ -468,7 +539,7 @@ class World {
     const trans = { pos: [], uv: [], light: [], idx: [] };
     const ox = chunk.cx * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
     const uvc = this.uvCache;
-    const skyTop = this.dim === 1 ? 0 : 15;
+    const skyTop = this.dim >= 1 ? 0 : 15;
 
     const R = (x, y, z) => (y * RW + z + MARGIN) * RW + x + MARGIN;
     const getId = (x, y, z) => (y < 0 || y >= H) ? B.AIR : ids[R(x, y, z)];
@@ -549,6 +620,28 @@ class World {
           if (model === 'torch') {
             const tile = block.tiles[0];
             addBox(solid, x, y, z, [7 / 16, 0, 7 / 16], [9 / 16, 10 / 16, 9 / 16], (f) => (f === 2 ? -1 : tile), 4);
+            continue;
+          }
+          if (model === 'shape') {
+            const d = this.blockData.get(World.bkey(wx, y, wz));
+            const get = (dx, dy, dz) => getId(x + dx, y + dy, z + dz);
+            const boxes = block.shape(get, d, id);
+            const out = block.translucent ? trans : solid;
+            const facing = d && d.facing ? d.facing : 0;
+            const topOnly = block.redstone === 'wire';
+            for (const bx of boxes) {
+              addBox(out, x, y, z, [bx[0], bx[1], bx[2]], [bx[3], bx[4], bx[5]], (f) => faceTile(id, f, facing), block.mat, (f) => {
+                if (topOnly) return f !== 3;
+                switch (f) {
+                  case 0: return bx[0] === 0 && OPAQUE[get(-1, 0, 0)];
+                  case 1: return bx[3] === 1 && OPAQUE[get(1, 0, 0)];
+                  case 2: return bx[1] === 0 && OPAQUE[get(0, -1, 0)];
+                  case 3: return bx[4] === 1 && OPAQUE[get(0, 1, 0)];
+                  case 4: return bx[2] === 0 && OPAQUE[get(0, 0, -1)];
+                  default: return bx[5] === 1 && OPAQUE[get(0, 0, 1)];
+                }
+              });
+            }
             continue;
           }
           if (model === 'pane') {
@@ -744,7 +837,18 @@ class World {
     let t = 0;
     while (t <= maxDist) {
       const id = this.getBlock(x, y, z);
-      if (id !== B.AIR && (hitFluids || id !== B.WATER)) return { x, y, z, id, normal, dist: t };
+      if (id !== B.AIR && (hitFluids || id !== B.WATER)) {
+        if (!BLOCKS[id].shape) return { x, y, z, id, normal, dist: t };
+        // Shaped blocks (slabs, stairs, fences...) are hit only on their actual boxes
+        const bx = x, by = y, bz = z;
+        const get = (dx, dy, dz) => this.getBlock(bx + dx, by + dy, bz + dz);
+        let best = null;
+        for (const box of BLOCKS[id].shape(get, this.getData(x, y, z), id)) {
+          const h = rayBoxNormal(origin, dir, x + box[0], y + box[1], z + box[2], x + box[3], y + box[4], z + box[5]);
+          if (h && h.t <= maxDist && (!best || h.t < best.t)) best = h;
+        }
+        if (best) return { x, y, z, id, normal: best.normal, dist: best.t };
+      }
       if (tMaxX < tMaxY && tMaxX < tMaxZ) {
         x += stepX; t = tMaxX; tMaxX += tDeltaX; normal = [-stepX, 0, 0];
       } else if (tMaxY < tMaxZ) {
@@ -830,4 +934,21 @@ class World {
   loadData(obj) {
     for (const k of Object.keys(obj || {})) this.blockData.set(k, obj[k]);
   }
+}
+
+// Ray vs axis-aligned box: entry distance and the face normal it enters through.
+function rayBoxNormal(o, d, x0, y0, z0, x1, y1, z1) {
+  let tmin = -Infinity, tmax = Infinity, normal = [0, 0, 0];
+  const lo = [x0, y0, z0], hi = [x1, y1, z1], O = [o.x, o.y, o.z], D = [d.x, d.y, d.z];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(D[i]) < 1e-9) { if (O[i] < lo[i] || O[i] > hi[i]) return null; continue; }
+    let t0 = (lo[i] - O[i]) / D[i], t1 = (hi[i] - O[i]) / D[i];
+    let n = -1;
+    if (t0 > t1) { const tt = t0; t0 = t1; t1 = tt; n = 1; }
+    if (t0 > tmin) { tmin = t0; normal = [0, 0, 0]; normal[i] = n; }
+    tmax = Math.min(tmax, t1);
+    if (tmin > tmax) return null;
+  }
+  if (tmax < 0) return null;
+  return { t: Math.max(0, tmin), normal };
 }

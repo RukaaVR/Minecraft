@@ -228,3 +228,44 @@ kbd { color: var(--ink); background: #222; border: 1px solid #555; padding: 0 4p
 .slot.blank { background: transparent; box-shadow: none; }
 .armor-col { display: flex; flex-direction: column; gap: 0; }
 .armor-slot:empty::after { content: attr(data-piece); font-size: 11px; color: #5a5a5a; }
+
+/* experience, boss bar, enchanting glint */
+#xpbar { position: relative; height: 7px; margin: 3px 2px 6px; background: #1a1a1a; border: 1px solid #000; }
+#xpfill { height: 100%; width: 0; background: linear-gradient(#b5ff5a, #5fc21b); }
+#xplevel { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); color: #80ff20; font-size: 20px; text-shadow: 2px 0 0 #000, -2px 0 0 #000, 0 2px 0 #000, 0 -2px 0 #000; pointer-events: none; }
+#bossbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(364px, calc(100vw - 32px)); text-align: center; pointer-events: none; }
+#bossbar .boss-name { font-size: 20px; text-shadow: 2px 2px 0 var(--ink-shadow); margin-bottom: 2px; }
+#bossbar .boss-track { height: 8px; background: #2b0b2e; border: 1px solid #000; }
+#bossfill { height: 100%; width: 100%; background: linear-gradient(#f05cff, #b11dc4); }
+.glint { position: absolute; inset: 2px; pointer-events: none; background: linear-gradient(115deg, transparent 30%, rgba(190, 110, 255, 0.55) 45%, transparent 60%); background-size: 300% 300%; mix-blend-mode: screen; animation: glint 3s linear infinite; }
+@keyframes glint { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .glint { animation: none; background-position: 50% 0; } }
+.tt-name.ench { color: #5ff; }
+.tt-ench { color: #aaa; font-size: 18px; }
+
+/* enchanting table */
+.enchant-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+.enchant-left { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.enchant-book { width: 64px; height: 44px; background: linear-gradient(90deg, #6b2a1b 0 48%, #3a1208 48% 52%, #6b2a1b 52%); border: 2px solid #2a0a04; box-shadow: inset 0 0 0 3px #e7dcc0; }
+.enchant-slots { display: flex; gap: 6px; }
+.lapis-slot:empty::after { content: ''; width: 16px; height: 16px; background: #2b4fb5; opacity: 0.35; transform: rotate(45deg); }
+.enchant-offers { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.enchant-offer { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 6px; font: inherit; color: #685e4a; background: #d6c9a2; border: 2px solid #3b3021; cursor: pointer; text-align: left; }
+.enchant-offer:not(.disabled):hover { background: #e9dcb2; color: #ffff80; }
+.enchant-offer.disabled { background: #8c7f63; color: #3f3628; cursor: default; }
+.eo-lapis { width: 22px; height: 22px; display: grid; place-items: center; background: #2b4fb5; color: #fff; font-size: 16px; flex: none; }
+.eo-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1; overflow: hidden; }
+.eo-gib { font-size: 14px; white-space: nowrap; overflow: hidden; }
+.eo-hint { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eo-cost { color: #80ff20; font-size: 20px; text-shadow: 1px 1px 0 #000; flex: none; }
+.enchant-offer.disabled .eo-cost { color: #407f10; }
+
+/* end credits */
+#credits { position: fixed; inset: 0; z-index: 60; background: #000; overflow: hidden; }
+#credits-scroll { position: absolute; left: 50%; top: 100%; width: min(640px, calc(100vw - 32px)); transform: translateX(-50%); text-align: center; animation: credits 60s linear forwards; }
+#credits .cl { font-size: 22px; line-height: 1.6; color: #ddd; }
+#credits .cl.h { font-size: 40px; color: #ffd84a; margin: 12px 0; }
+#credits .cl.s { color: #ffff80; }
+#btn-credits-skip { position: absolute; right: 16px; bottom: 16px; width: auto; padding: 0 16px; }
+@keyframes credits { from { top: 100%; } to { top: -120%; } }
+@media (prefers-reduced-motion: reduce) { #credits-scroll { animation-duration: 1s; } }

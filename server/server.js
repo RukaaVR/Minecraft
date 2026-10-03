@@ -60,7 +60,7 @@ setInterval(save, 30000);
 
 function setBlock(x, y, z, id, w) {
   if (![x, y, z, id].every(Number.isInteger) || y < 0 || y > 255 || id < 0 || id > 255) return false;
-  w = w === 1 ? 1 : 0;
+  w = w === 1 || w === 2 ? w : 0;
   world.edits[w ? `${x},${y},${z},${w}` : `${x},${y},${z}`] = id;
   dirty = true;
   return true;
@@ -143,7 +143,7 @@ wss.on('connection', (ws, req) => {
         break;
       case 'block':
         if (setBlock(d.x, d.y, d.z, d.id, d.w)) {
-          const dk = d.w === 1 ? `${d.x},${d.y},${d.z},1` : `${d.x},${d.y},${d.z}`;
+          const dk = d.w === 1 || d.w === 2 ? `${d.x},${d.y},${d.z},${d.w}` : `${d.x},${d.y},${d.z}`;
           if (typeof d.f === 'number') { world.data[dk] = Object.assign({}, world.data[dk], { facing: d.f & 3 }); }
           if (d.id === 0) delete world.data[dk];
           broadcast('block', d, id, id);
@@ -160,7 +160,7 @@ wss.on('connection', (ws, req) => {
         break;
       case 'bdata':
         if ([d.x, d.y, d.z].every(Number.isInteger)) {
-          const k = d.w === 1 ? `${d.x},${d.y},${d.z},1` : `${d.x},${d.y},${d.z}`;
+          const k = d.w === 1 || d.w === 2 ? `${d.x},${d.y},${d.z},${d.w}` : `${d.x},${d.y},${d.z}`;
           if (d.d && typeof d.d === 'object') world.data[k] = d.d; else delete world.data[k];
           dirty = true;
           broadcast('bdata', d, id, id);

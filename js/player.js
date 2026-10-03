@@ -53,6 +53,9 @@ class Player {
     this.portalCooldown = 0;
     this.sleeping = false;
     this.selected = 0;
+    this.xp = 0;
+    this.enchantSeed = (Math.random() * 2147483647) | 0;
+    this.riding = null;
     this.onDamage = null; // callback(amount, cause)
   }
 
@@ -115,11 +118,23 @@ class Player {
         const wear = Math.max(1, Math.floor(amount / 4));
         this.armor.slots.forEach((s, i) => {
           if (!s) return;
+          const unb = typeof enchLevel === 'function' ? enchLevel(s, 'unbreaking') : 0;
+          if (unb && Math.random() < 0.6 * (1 - 1 / (unb + 1))) return;
           s.dmg = (s.dmg || 0) + wear;
           if (s.dmg >= ITEMS[s.id].armor.uses) { this.armor.slots[i] = null; Sound.noise(2000, 2, 0.3, 0.5); }
         });
         this.armor.changed();
       }
+    }
+    // Protection enchantments (feather falling only for falls)
+    if (typeof enchLevel === 'function' && !['void', 'kill', 'starve'].includes(cause)) {
+      let epf = 0;
+      for (const s of this.armor.slots) {
+        if (!s) continue;
+        epf += enchLevel(s, 'protection');
+        if (cause === 'fall') epf += enchLevel(s, 'feather_falling') * 3;
+      }
+      if (epf > 0) amount *= 1 - Math.min(20, epf) * 0.04;
     }
     this.health = Math.max(0, this.health - amount);
     this.hurtTime = 0.4;
@@ -275,6 +290,7 @@ class Player {
       flying: this.flying, mode: this.mode, health: this.health, food: this.food,
       saturation: this.saturation, air: this.air, spawn: this.spawn,
       inv: this.inventory.serialize(), selected: this.selected, armor: this.armor.serialize(),
+      xp: this.xp, enchantSeed: this.enchantSeed,
     };
   }
   load(d) {
@@ -289,5 +305,7 @@ class Player {
     if (d.inv) this.inventory.load(d.inv);
     if (d.armor) this.armor.load(d.armor);
     this.selected = d.selected || 0;
+    this.xp = d.xp || 0;
+    if (d.enchantSeed) this.enchantSeed = d.enchantSeed;
   }
 }

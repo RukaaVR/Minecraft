@@ -15,6 +15,8 @@ const MOB_INFO = {
   piglin: { health: 20, speed: 2.4, hostile: false, neutral: true },
   ghast: { health: 10, speed: 2.0, hostile: true, flying: true },
 };
+const MOB_AI = {};      // type -> simulate(dt) override (see mobs2.js)
+const MOB_RENDER = {};  // type -> extra per-frame rendering
 const PROFESSIONS = ['farmer', 'librarian', 'toolsmith', 'butcher', 'cleric', 'armorer'];
 // [[costId, costCount], [cost2Id, cost2Count] | null, [resultId, resultCount]]
 const TRADES = {
@@ -80,6 +82,7 @@ class Mob {
     this.swing = 0;
     this.lastHitBy = null;
     this.flyTarget = null;
+    if (typeof MOB_INIT !== 'undefined' && MOB_INIT[type]) MOB_INIT[type].call(this, extra);
     game.scene.add(this.model.root);
   }
 
@@ -140,6 +143,7 @@ class Mob {
       moveBody(world, this, dt);
       return;
     }
+    if (MOB_AI[this.type]) { MOB_AI[this.type].call(this, dt); return; }
     if (this.info.flying) { this.simulateFlying(dt); return; }
 
     let dirX = 0, dirZ = 0, speed = 0;
@@ -223,6 +227,32 @@ class Mob {
       }
     }
 
+    const { inWater, inLava } = this._locomote(dt, dirX, dirZ, speed);
+
+    // Undead burn in daylight; everything burns in lava
+    if ((this.type === 'zombie' || this.type === 'skeleton') && this.game.daylight > 0.75 && !inWater && world.dim === 0 && !(this.game.weather && this.game.weather.rain > 0.5)) {
+      const l = world.getLight(Math.floor(this.pos.x), Math.floor(this.pos.y + 1.6), Math.floor(this.pos.z));
+      if (l.sky >= 15) {
+        this.burnTimer += dt;
+        if (this.burnTimer >= 1) { this.burnTimer = 0; this.hurt(1, 0, 0, 'env'); this.vel.set(0, this.vel.y, 0); }
+      }
+    }
+    if (inLava && this.type !== 'piglin') {
+      this.burnTimer += dt;
+      if (this.burnTimer >= 0.5) { this.burnTimer = 0; this.hurt(4, 0, 0, 'env'); }
+    }
+
+    this.ambient -= dt;
+    if (this.ambient <= 0) {
+      this.ambient = 8 + Math.random() * 20;
+      if (this.game.player.pos.distanceTo(this.pos) < 16) Sound.mob(this.type);
+    }
+    if (this.pos.y < -30) this.deathTime = 99;
+  }
+
+  // Turn toward targetYaw, walk/swim/jump, animate. Returns fluid flags.
+  _locomote(dt, dirX, dirZ, speed) {
+    const world = this.game.world;
     let dyaw = this.targetYaw - this.yaw;
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
@@ -243,26 +273,7 @@ class Mob {
     const moving = Math.hypot(this.vel.x, this.vel.z);
     this.walkPhase += moving * dt * 4;
     this.walkAmount = Math.min(1, moving / 2);
-
-    // Undead burn in daylight; everything burns in lava
-    if ((this.type === 'zombie' || this.type === 'skeleton') && this.game.daylight > 0.75 && !inWater && world.dim === 0) {
-      const l = world.getLight(Math.floor(this.pos.x), Math.floor(this.pos.y + 1.6), Math.floor(this.pos.z));
-      if (l.sky >= 15) {
-        this.burnTimer += dt;
-        if (this.burnTimer >= 1) { this.burnTimer = 0; this.hurt(1, 0, 0, 'env'); this.vel.set(0, this.vel.y, 0); }
-      }
-    }
-    if (inLava && this.type !== 'piglin') {
-      this.burnTimer += dt;
-      if (this.burnTimer >= 0.5) { this.burnTimer = 0; this.hurt(4, 0, 0, 'env'); }
-    }
-
-    this.ambient -= dt;
-    if (this.ambient <= 0) {
-      this.ambient = 8 + Math.random() * 20;
-      if (this.game.player.pos.distanceTo(this.pos) < 16) Sound.mob(this.type);
-    }
-    if (this.pos.y < -30) this.deathTime = 99;
+    return { inWater, inLava };
   }
 
   // Ghasts drift around and shoot fireballs at players they can see.
@@ -334,6 +345,7 @@ class Mob {
     if (this.hurtTime > 0 || this.dead) m.mat.color.setRGB(Math.max(0.6 * light * 2, light), light * 0.3, light * 0.3);
     else if (this.fuse > 0 && Math.floor(this.fuse * 8) % 2 === 0) m.mat.color.setRGB(light * 2.5, light * 2.5, light * 2.5);
     else m.mat.color.setRGB(light, light, light);
+    if (MOB_RENDER[this.type]) MOB_RENDER[this.type].call(this, light);
   }
 
   rayHit(origin, dir, maxDist) {
@@ -355,11 +367,15 @@ class Projectile {
     this.age = 0;
     this.stuck = false;
     this.remote = !!opts.remote;         // display only (from the network)
-    const id = kind === 'arrow' ? ITEM.ARROW : null;
+    const id = kind === 'arrow' ? ITEM.ARROW : kind === 'pearl' ? ITEM.ENDER_PEARL : kind === 'eye' ? ITEM.EYE_OF_ENDER : null;
+    this.target = opts.target || null;
     if (kind === 'arrow') {
       this.mesh = new THREE.Mesh(itemGeometry(id, 0.7), game.entityMat);
+    } else if (kind === 'pearl' || kind === 'eye') {
+      this.mesh = new THREE.Mesh(itemGeometry(id, 0.35), game.entityMat);
     } else {
-      const g = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+      const sz = kind === 'smallfire' ? 0.3 : 0.9;
+      const g = new THREE.BoxGeometry(sz, sz, sz);
       const [u0, v0, u1, v1] = tileUV(T.ITEM2 + 37);
       const uv = g.attributes.uv;
       for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
@@ -376,7 +392,23 @@ class Projectile {
     const g = this.game, world = g.world;
     this.age += dt;
     if (this.stuck) { return this.age < 30; }
-    if (this.kind === 'arrow') { this.vel.y -= 20 * dt; this.vel.multiplyScalar(Math.pow(0.99, dt * 20)); }
+    if (this.kind === 'arrow' || this.kind === 'pearl') { this.vel.y -= 20 * dt; this.vel.multiplyScalar(Math.pow(0.99, dt * 20)); }
+    if (this.kind === 'eye') {
+      // Eyes of ender drift toward the stronghold, hover, then drop or shatter
+      if (this.age > 2.2) {
+        this.mesh.visible = false;
+        if (!this.remote) {
+          if (Math.random() < 0.8) g.spawnItem(stackOf(ITEM.EYE_OF_ENDER, 1), this.pos.x, this.pos.y, this.pos.z, new THREE.Vector3());
+          else { g.particles.smoke(this.pos.x, this.pos.y, this.pos.z, 8); Sound.glassBreak(); }
+        }
+        return false;
+      }
+      if (this.age > 1.6) this.vel.multiplyScalar(0.8);
+      this.pos.addScaledVector(this.vel, dt);
+      this.mesh.position.copy(this.pos);
+      this.mesh.rotation.y += dt * 5;
+      return true;
+    }
     const step = this.vel.clone().multiplyScalar(dt);
     const len = step.length();
     const dir = step.clone().normalize();
@@ -404,6 +436,8 @@ class Projectile {
         if (!this.remote && g.isAuthority) g.explode(this.pos.x, this.pos.y, this.pos.z, 1, true);
         return false;
       }
+      if (this.kind === 'smallfire') { g.particles.smoke(this.pos.x, this.pos.y, this.pos.z, 4); return false; }
+      if (this.kind === 'pearl') { if (!this.remote && this.fromPlayer) g.pearlLanded(this.pos); return false; }
       this.stuck = true;
       this.age = 0;
       Sound.noise(900, 2, 0.1, 0.2);
@@ -426,6 +460,13 @@ class Projectile {
     const g = this.game;
     if (this.kind === 'fireball') {
       if (g.isAuthority) g.explode(this.pos.x, this.pos.y, this.pos.z, 1, true);
+      return;
+    }
+    if (this.kind === 'pearl') { if (this.fromPlayer) g.pearlLanded(this.pos); return; }
+    if (this.kind === 'smallfire') {
+      if (c === 'local') { g.player.damage(5, 'fire', { x: dir.x * 2, y: 2, z: dir.z * 2 }); g.player.fireTime = Math.max(g.player.fireTime, 5); }
+      else if (c instanceof RemotePlayer) g.net.send('hurt', { to: c.peer, dmg: 5, kx: dir.x * 2, ky: 2, kz: dir.z * 2 });
+      else if (c instanceof Mob && g.isAuthority && c.type !== 'blaze') c.hurt(5, dir.x, dir.z, null);
       return;
     }
     const speed = this.vel.length();

@@ -1,6 +1,6 @@
 # WebCraft
 
-A Minecraft-style game that runs in the browser: survival, creative, adventure and hardcore modes, the Nether, villages, crafting, mobs, multiplayer, and a WebGL2 port of the Halcyon shader pack. No build step. Open `index.html` to play.
+A Minecraft-style game that runs in the browser: survival, creative, adventure and hardcore modes, the Nether, the End and the Ender Dragon, villages, strongholds, fortresses, redstone, enchanting, weather, boats, crafting, mobs, multiplayer, and a WebGL2 port of the Halcyon shader pack. No build step. Open `index.html` to play.
 
 ## Play
 
@@ -30,7 +30,15 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 
 ## Features
 
-- Infinite terrain: plains, forests, beaches, oceans, deserts with cacti, snowy mountains, caves, and coal, iron, gold, diamond and emerald ores at their usual depths
+- Infinite terrain with biomes (plains, oak and birch forests, spruce taiga, snowy plains, deserts with cacti, beaches, oceans, mountains), caves, sugar cane by water, and coal, iron, gold, lapis, redstone, diamond and emerald ores at their usual depths
+- **The End**: find a stronghold by throwing eyes of ender (crafted from ender pearls and blaze powder), fill all 12 frames in its portal room to open the End portal, then fight the Ender Dragon on the End island. End crystals on the obsidian pillars heal it and explode when hit. Killing it opens the exit portal, leaves the dragon egg and a lot of experience, and the exit portal plays the credits and takes you home.
+- **Nether fortresses**: nether brick corridors with loot chests, a blaze spawner, and blazes that shoot fireballs. Blaze rods are the way to the End.
+- **Redstone**: dust carries power up to 15 blocks, with levers, buttons, pressure plates, redstone torches (which invert), redstone blocks, lamps, powered doors and TNT
+- **Enchanting and experience**: mobs, ores and dying drop experience orbs, shown in an XP bar with levels. The enchanting table gets stronger with bookshelves and spends lapis and levels. Enchantments: Efficiency, Sharpness, Power, Infinity, Protection, Feather Falling and Unbreaking. Enchanted items glint.
+- **Weather**: rain, snow in cold biomes, and thunderstorms with lightning that can turn creepers charged
+- **Building blocks**: slabs (stack two for a full block), stairs, fences, glass panes, ladders you can climb, birch and spruce wood
+- **Boats**: place on water, right-click to get in, WASD to row, Shift to get out
+- **More mobs**: wolves (tame with bones, they fight for you), endermen (don't look at them), iron golems guarding villages, slimes that split, blazes, and the Ender Dragon
 - **Villages** in plains and deserts. Each has a well, dirt-path roads, houses with doors, beds, chests of loot, furnaces and crafting tables, wheat farms, and lamp posts. Villagers wander the village, and right-clicking one opens trades by profession (farmer, librarian, toolsmith, butcher, cleric, armorer) using emeralds.
 - **The Nether**: build a 4×5 obsidian frame and light it with flint and steel. The Nether has netherrack caverns, a lava sea, soul sand, glowstone, quartz ore, zombified piglins that fight back when attacked, and ghasts that shoot exploding fireballs. Coordinates scale 1:8, and portals are linked or built on arrival.
 - Flowing water and lava with source blocks, flow levels and falling fluids. Lava meeting water makes obsidian, cobblestone or stone. Buckets pick up and place both.
@@ -41,11 +49,11 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 - Mining speeds, tool tiers and durability follow Minecraft. For example, you can't get stone by hand, and iron needs a stone pickaxe.
 - Crafting: a 2×2 grid in the inventory and 3×3 at a crafting table. There are 40+ recipes, including planks, sticks, every tool tier, torches, furnaces, chests, TNT and metal blocks.
 - Furnaces smelt ores, sand, cobblestone and raw meat, with fuel and progress bars. Chests store 27 slots.
-- Mobs: pigs, cows, sheep and chickens drop food and materials. Zombies chase and attack you and burn in daylight. Creepers hiss and explode.
+- Mobs: pigs, cows, sheep (shear them for wool) and chickens drop food and materials. Zombies chase and attack you and burn in daylight. Creepers hiss and explode.
 - Hunger, food, eating, natural regeneration, drowning, starving and death messages
 - Peaceful, easy, normal and hard difficulty
 - Dropped items, item pickup, Q to drop, falling sand and gravel, priming TNT with flint and steel
-- Chat and commands: `/gamemode`, `/time set`, `/tp`, `/give`, `/summon`, `/locate village`, `/kill`, `/clear`, `/spawnpoint`, `/difficulty`, `/seed`, `/help`
+- Chat and commands: `/gamemode`, `/time set`, `/tp`, `/give`, `/summon`, `/locate village|stronghold|fortress`, `/weather`, `/xp`, `/enchant`, `/kill`, `/clear`, `/spawnpoint`, `/difficulty`, `/seed`, `/help`
 - Third-person view (F5), debug screen (F3), hidden HUD (F1), day/night cycle, clouds, stars, and sounds generated in code
 - Several saved worlds, each autosaved in the browser
 
@@ -79,6 +87,13 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/halcyon_glsl.js` | The Halcyon shader pack's GLSL, ported to WebGL2 |
 | `js/halcyon.js` | The Halcyon render passes and per-frame light colours |
 | `js/gameplay.js` | Portals and dimensions, fluids, farming, doors, beds, bows, armor, trading |
+| `js/gameplay2.js` | Shaped block placement, the End and dragon fight, ender pearls and eyes, boats, spawners, extra spawning |
+| `js/blocks3.js` | Biome woods, slabs, stairs, fences, panes, ladders, redstone parts, End blocks and their recipes |
+| `js/structures.js` | Nether fortresses, strongholds and the End pillars |
+| `js/redstone.js` | Redstone power simulation |
+| `js/enchant.js` | Experience orbs and levels, enchantments and the enchanting table |
+| `js/weather.js` | Rain, snow and lightning |
+| `js/mobs2.js`, `js/models2.js` | Wolves, endermen, golems, slimes, blazes, the dragon and end crystals; boats |
 | `js/items.js` | Items, tools, food, crafting recipes, smelting |
 | `js/world.js` | Chunks, terrain generation, light flood-fill, meshing, raycasting |
 | `js/physics.js` | Box collision shared by players, mobs and items |
@@ -94,6 +109,6 @@ In inventories: left click picks up or places a stack, right click splits a stac
 
 ## Not in this version
 
-This is a large slice of Minecraft, not an exact copy. Missing pieces include redstone, the End and the Ender Dragon, enchanting and XP, potions, boats and minecarts, weather, biomes beyond plains/desert/snowy mountains, Nether fortresses and bastions, and Mojang's original textures and sounds (everything here is drawn and synthesized in code). In multiplayer, only the host simulates mobs, and only in the host's dimension. Players in the other dimension see no mobs.
+This is a large slice of Minecraft, not an exact copy. Missing pieces include potions and brewing, anvils, minecarts and rails, pistons, repeaters and comparators, bastions, ocean monuments, the outer End islands and elytra, jungles and other rarer biomes, and Mojang's original textures and sounds (everything here is drawn and synthesized in code). Redstone is simplified: there are no ticks of delay, and power travels instantly. In multiplayer, only the host simulates mobs, redstone and weather, and only in the host's dimension. Boats are only visible to the player who placed them.
 
 This is a fan-made game and isn't affiliated with Mojang or Microsoft. Three.js is MIT licensed; see `lib/THREE_LICENSE`.

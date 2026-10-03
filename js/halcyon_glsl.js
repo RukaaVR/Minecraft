@@ -208,7 +208,7 @@ vec3 nightGradient(vec3 v) {
   return col;
 }
 vec3 getSkyFull(vec3 v) {
-  if (dimension == 1) return dimSkyColor();
+  if (dimension >= 1) return dimSkyColor();
   vec3 sky = scatterSky(v, sunDir, SUN_ILLUMINANCE);
   sky += scatterSky(v, moonDir, MOON_ILLUMINANCE * 4.0) * vec3(0.55, 0.7, 1.0);
   float up = max(v.y, 0.0);
@@ -237,7 +237,7 @@ vec3 sunDisk(vec3 v, vec3 sd, vec3 sc) {
 vec4 getAerialPerspective(vec3 relPos, float camY, vec3 skyInDir, vec3 sd, vec3 sc, float farPlane, float rain) {
   float dist = length(relPos);
   vec3 dir = relPos / max(dist, 1e-4);
-  if (dimension == 1) {
+  if (dimension >= 1) {
     float Td = exp(-dist * 0.010 * FOG_DENSITY) * (1.0 - smoothstep(farPlane * FOG_START, farPlane * FOG_END, dist));
     return vec4(skyInDir * (1.0 - Td), Td);
   }
@@ -367,7 +367,7 @@ vec4 renderClouds2D(vec3 camPos, vec3 dir, vec3 ld, vec3 lc, vec3 amb, float tim
   return vec4(col * alpha, 1.0 - alpha);
 }
 float cloudShadow(vec3 wp, vec3 ld, float time) {
-  if (dimension == 1 || ld.y < 0.05) return 1.0;
+  if (dimension >= 1 || ld.y < 0.05) return 1.0;
   float mid = (CLOUD_BOTTOM + CLOUD_TOP) * 0.5;
   vec3 p = wp + ld * ((mid - wp.y) / ld.y);
   float cov = cloudCoverage(p.xz, time);
@@ -614,7 +614,7 @@ vec3 shadeSurface(vec3 albedo, vec3 normal, vec3 viewDir, float skylight, float 
     sss = lc * sssShadow * albedo * (thin + forward) * 0.55 * SUBSURFACE_STRENGTH;
   }
   float skyLM = skylight * skylight;
-  if (dimension == 1) skyLM = 1.0;
+  if (dimension >= 1) skyLM = 1.0;
   float upness = normal.y * 0.5 + 0.5;
   float skyVis = mix(0.55, 1.0, upness);
   if (translucentPlant) skyVis = 0.85;

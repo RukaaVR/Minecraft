@@ -2,6 +2,8 @@
 // doors, beds and sleeping, bows, buckets, armor, villagers and trading.
 'use strict';
 
+const PROJ_KINDS = ['arrow', 'fireball', 'smallfire', 'pearl', 'eye'];
+
 Object.assign(Game.prototype, {
   // ---------------------------------------------------------------- dimensions
   worldFor(dim) {
@@ -401,6 +403,10 @@ Object.assign(Game.prototype, {
         const m = this.spawnMob('villager', x, y, z, { home: v.center });
         m.villageId = v.id;
       }
+      // Every village has an iron golem guarding it
+      const gx = v.center[0] - 3.5, gz = v.center[2] - 2.5;
+      const golem = this.spawnMob('golem', gx, this.world.surfaceY(Math.floor(gx), Math.floor(gz)) + 1, gz, { home: v.center });
+      golem.villageId = v.id;
     }
   },
 
@@ -444,10 +450,12 @@ Object.assign(Game.prototype, {
       const f = Math.min(1, (c * c + c * 2) / 3);
       const dir = p.lookDir();
       const eye = p.eye;
-      this.spawnProjectile('arrow', eye.clone().addScaledVector(dir, 0.4), dir.multiplyScalar(55 * f), { owner: 'player', damage: Math.max(1, Math.round(9 * f)) });
+      const power = enchLevel(held, 'power');
+      const dmg = Math.max(1, Math.round(9 * f * (power ? 1 + 0.25 * (power + 1) : 1)));
+      this.spawnProjectile('arrow', eye.clone().addScaledVector(dir, 0.4), dir.multiplyScalar(55 * f), { owner: 'player', damage: dmg });
       Sound.noise(1500, 2, 0.2, 0.35);
       if (p.mode !== 'creative') {
-        for (let i = 0; i < p.inventory.slots.length; i++) {
+        if (!enchLevel(held, 'infinity')) for (let i = 0; i < p.inventory.slots.length; i++) {
           const s = p.inventory.slots[i];
           if (s && s.id === ITEM.ARROW) { p.inventory.removeFrom(i, 1); break; }
         }
@@ -471,7 +479,7 @@ Object.assign(Game.prototype, {
 
   // Projectiles for remote viewers (host shares the ones its mobs fire)
   serializeProjectiles() {
-    return this.projectiles.filter((p) => !p.remote && !p.stuck).slice(0, 12).map((p) => [p.kind === 'arrow' ? 0 : 1, Math.round(p.pos.x * 10), Math.round(p.pos.y * 10), Math.round(p.pos.z * 10), Math.round(p.vel.x * 10), Math.round(p.vel.y * 10), Math.round(p.vel.z * 10)]);
+    return this.projectiles.filter((p) => !p.remote && !p.stuck).slice(0, 12).map((p) => [PROJ_KINDS.indexOf(p.kind), Math.round(p.pos.x * 10), Math.round(p.pos.y * 10), Math.round(p.pos.z * 10), Math.round(p.vel.x * 10), Math.round(p.vel.y * 10), Math.round(p.vel.z * 10)]);
   },
   applyProjectileState(list) {
     for (const p of this.projectiles.filter((q) => q.remote)) { p.dispose(); }
@@ -479,7 +487,7 @@ Object.assign(Game.prototype, {
     if (!Array.isArray(list)) return;
     for (const a of list) {
       if (!Array.isArray(a) || a.length < 7) continue;
-      this.projectiles.push(new Projectile(this, a[0] ? 'fireball' : 'arrow', new THREE.Vector3(a[1] / 10, a[2] / 10, a[3] / 10), new THREE.Vector3(a[4] / 10, a[5] / 10, a[6] / 10), { remote: true }));
+      this.projectiles.push(new Projectile(this, PROJ_KINDS[a[0]] || 'arrow', new THREE.Vector3(a[1] / 10, a[2] / 10, a[3] / 10), new THREE.Vector3(a[4] / 10, a[5] / 10, a[6] / 10), { remote: true }));
     }
   },
 
@@ -499,7 +507,7 @@ Object.assign(Game.prototype, {
     if (item && item.armor) {
       const slot = item.armor.slot;
       const old = p.armor.slots[slot];
-      p.armor.slots[slot] = stackOf(held.id, 1, held.dmg);
+      p.armor.slots[slot] = stackOf(held.id, 1, held.dmg, held.ench);
       p.inventory.slots[p.selected] = old;
       p.inventory.changed(); p.armor.changed();
       Sound.noise(700, 1, 0.2, 0.3);

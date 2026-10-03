@@ -14,6 +14,11 @@ function blockBoxes(world, x, y, z, id, out) {
     out.push([x + b0[0], y + b0[1], z + b0[2], x + b1[0], y + b1[1], z + b1[2]]);
     return;
   }
+  if (b.shape) {
+    const get = (dx, dy, dz) => world.getBlock(x + dx, y + dy, z + dz);
+    for (const bx of (b.collide || b.shape)(get, world.getData(x, y, z), id)) out.push([x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5]]);
+    return;
+  }
   out.push([x, y, z, x + 1, y + b.height, z + 1]);
 }
 

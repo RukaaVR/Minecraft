@@ -74,7 +74,8 @@ const HalcyonAtmos = (() => {
   return {
     // Returns colors for the frame. dim 1 = nether (fog-colored, no sun).
     frame(sunDir, moonDir, moonPhase, dim, fogLin) {
-      if (dim === 1) {
+      if (dim === 2) return { sunColor: [0, 0, 0], lightColor: [0, 0, 0], skyAmbient: [0.46, 0.40, 0.62] };
+      if (dim >= 1) {
         return {
           sunColor: [0, 0, 0], lightColor: [0, 0, 0],
           skyAmbient: [fogLin[0] * 6 + 0.30, fogLin[1] * 6 + 0.20, fogLin[2] * 6 + 0.15],
@@ -513,24 +514,25 @@ void main() {
     u.moonDir.value.copy(md);
     const dim = game.world ? game.world.dim : 0;
     u.dimension.value = dim;
-    const fog = [0.20, 0.03, 0.03].map((c) => Math.pow(c, 2.2));
+    const fog = (dim === 2 ? [0.07, 0.05, 0.11] : [0.20, 0.03, 0.03]).map((c) => Math.pow(c, 2.2));
     u.fogColorLin.value.set(fog[0], fog[1], fog[2]);
     u.moonPhase.value = Math.floor(game.dayCount || 0) % 8;
     const c = HalcyonAtmos.frame([sd.x, sd.y, sd.z], [md.x, md.y, md.z], u.moonPhase.value, dim, fog);
     u.sunColor.value.set(...c.sunColor);
     u.lightColor.value.set(...c.lightColor);
     u.skyAmbient.value.set(...c.skyAmbient);
-    u.lightDir.value.copy(dim === 1 ? new THREE.Vector3(0, 1, 0) : (c.lightIsSun ? sd : md));
+    u.lightDir.value.copy(dim >= 1 ? new THREE.Vector3(0, 1, 0) : (c.lightIsSun ? sd : md));
     u.far.value = game.settings.renderDistance * CHUNK_SIZE;
     const p = game.player;
     u.isEyeInWater.value = p && p.eyeInWater ? 1 : p && p.eyeInLava ? 2 : 0;
     let eye = 1;
     if (p && game.world) {
       const l = game.world.getLight(Math.floor(p.pos.x), Math.floor(p.pos.y + p.eyeHeight), Math.floor(p.pos.z));
-      eye = dim === 1 ? 1 : l.sky / 15;
+      eye = dim >= 1 ? 1 : l.sky / 15;
     }
     this.eyeSkySmooth += (eye - this.eyeSkySmooth) * Math.min(1, dt * 1.5);
     u.eyeSky.value = this.eyeSkySmooth;
+    if (game.weather) u.rainStrength.value = game.weather.rain;
     this.colors = c;
   }
 
@@ -539,8 +541,8 @@ void main() {
     const u = this.u, s = sky / 15, b = block / 15;
     const lc = u.lightColor.value, amb = u.skyAmbient.value;
     const dim = u.dimension.value;
-    const skyLM = dim === 1 ? 1 : s * s;
-    const direct = HalcyonAtmos.luma([lc.x, lc.y, lc.z]) * 0.55 * (dim === 1 ? 0 : (s > 0.9 ? 1 : s * 0.5));
+    const skyLM = dim >= 1 ? 1 : s * s;
+    const direct = HalcyonAtmos.luma([lc.x, lc.y, lc.z]) * 0.55 * (dim >= 1 ? 0 : (s > 0.9 ? 1 : s * 0.5));
     const ambient = HalcyonAtmos.luma([amb.x, amb.y, amb.z]) * 1.5 * skyLM;
     const blk = (b * b * b * 1.1 + b * 0.06) * 2.2 * 0.68;
     return (direct + ambient + blk + 0.006) / Math.PI;

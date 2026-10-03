@@ -40,8 +40,10 @@
           <div id="food" class="icons right"></div>
         </div>
       </div>
+      <div id="xpbar" hidden><div id="xpfill"></div><span id="xplevel"></span></div>
       <div id="hotbar"></div>
     </div>
+    <div id="bossbar" hidden><div class="boss-name">Ender Dragon</div><div class="boss-track"><div id="bossfill"></div></div></div>
   </div>
 
   <!-- Container screens -->
@@ -54,6 +56,11 @@
   <div id="sleep-overlay" hidden></div>
 
   <!-- Death -->
+  <div id="credits" hidden>
+    <div id="credits-scroll"></div>
+    <button id="btn-credits-skip" class="btn small">Skip</button>
+  </div>
+
   <div id="death" hidden>
     <h2>You Died!</h2>
     <p id="death-msg"></p>
@@ -188,19 +195,27 @@
   <script src="js/blocks.js"></script>
   <script src="js/items.js"></script>
   <script src="js/textures2.js"></script>
+  <script src="js/blocks3.js"></script>
   <script src="js/world.js"></script>
   <script src="js/villages.js"></script>
+  <script src="js/structures.js"></script>
   <script src="js/physics.js"></script>
   <script src="js/inventory.js"></script>
   <script src="js/player.js"></script>
   <script src="js/models.js"></script>
+  <script src="js/models2.js"></script>
   <script src="js/sound.js"></script>
   <script src="js/entities.js"></script>
+  <script src="js/mobs2.js"></script>
   <script src="js/net.js"></script>
   <script src="js/halcyon_glsl.js"></script>
   <script src="js/halcyon.js"></script>
   <script src="js/game.js"></script>
   <script src="js/gameplay.js"></script>
+  <script src="js/gameplay2.js"></script>
+  <script src="js/redstone.js"></script>
+  <script src="js/enchant.js"></script>
+  <script src="js/weather.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>

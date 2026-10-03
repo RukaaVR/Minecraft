@@ -499,6 +499,7 @@ class UI {
     img.alt = '';
     img.draggable = false;
     node.appendChild(img);
+    if (stack.ench) node.appendChild(el('div', 'glint'));
     if (stack.count > 1) node.appendChild(el('span', 'count', String(stack.count)));
     const tool = ITEMS[stack.id] && ITEMS[stack.id].tool;
     if (tool && stack.dmg > 0) {
@@ -580,6 +581,23 @@ class UI {
       $('hearts').classList.toggle('low', p.health <= 4);
       $('food').classList.toggle('low', p.food <= 0);
     }
+    // Experience bar
+    const xpBar = $('xpbar');
+    xpBar.hidden = !surv;
+    if (surv) {
+      const xl = xpLevel(p.xp || 0);
+      const xk = xl.level + '|' + Math.round(xl.progress * 182);
+      if (this.hudCache.xp !== xk) {
+        this.hudCache.xp = xk;
+        $('xpfill').style.width = (xl.progress * 100) + '%';
+        $('xplevel').textContent = xl.level > 0 ? String(xl.level) : '';
+      }
+    }
+    // Boss bar for the Ender Dragon
+    let boss = null;
+    for (const m of g.mobs.values()) if (m.type === 'dragon' && !m.dead) { boss = m; break; }
+    $('bossbar').hidden = !boss;
+    if (boss) $('bossfill').style.width = Math.max(0, boss.health / boss.info.health * 100) + '%';
     $('hurt-overlay').style.opacity = p.hurtTime > 0 ? p.hurtTime * 1.2 : 0;
     $('portal-overlay').style.opacity = p.inPortal && !p.portalLock && p.portalCooldown <= 0 ? Math.min(0.8, p.portalTime / 4) : 0;
     $('fire-overlay').hidden = !(p.fireTime > 0 && p.usesHealth);
@@ -629,7 +647,49 @@ class UI {
     this.buildGui();
   }
   openCrafting() { this.openGui('crafting'); }
+  openEnchant(x, y, z) { this.openGui('enchant', { pos: [x, y, z], item: null, lapis: null }); }
   openTrade(mob) { this.openGui('trade', { mob }); }
+
+  // End credits: the player's own poem-free scroll, then back to the Overworld
+  showCredits(cb) {
+    const c = $('credits');
+    const inner = $('credits-scroll');
+    const name = this.game.settings.name;
+    inner.innerHTML = '';
+    const lines = [
+      ['h', 'WEBCRAFT'], ['', ''], ['', `${name} defeated the Ender Dragon.`], ['', ''],
+      ['', 'The island is quiet now. The crystals are dust, and the exit portal hums'],
+      ['', 'with the light of a sky you have never seen.'], ['', ''],
+      ['', 'You came from a world of grass and stone, of sunrises and long nights,'],
+      ['', 'of caves that went deeper than you meant to go.'], ['', ''],
+      ['', 'You built a house. Then a better one. You learned what creepers sound like.'],
+      ['', 'You found a village, a fortress, a stronghold, and finally this place.'], ['', ''],
+      ['', 'There is no more story than the one you make.'], ['', 'Go home. Build something.'], ['', ''], ['', ''],
+      ['h', 'Credits'], ['', ''],
+      ['s', 'Game'], ['', 'WebCraft, a browser tribute to Minecraft'], ['', ''],
+      ['s', 'Shaders'], ['', 'Halcyon shader pack, ported to WebGL'], ['', ''],
+      ['s', 'Rendering'], ['', 'three.js'], ['', ''],
+      ['s', 'Player'], ['', name], ['', ''], ['', ''], ['', 'Thanks for playing.'],
+    ];
+    for (const [k, t] of lines) inner.appendChild(el('div', 'cl ' + (k || ''), t || '\u00a0'));
+    c.hidden = false;
+    this.releaseMouse();
+    this.screen = 'credits';
+    inner.style.animation = 'none';
+    void inner.offsetHeight;
+    inner.style.animation = '';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      c.hidden = true;
+      this.screen = 'none';
+      cb();
+      this.resume();
+    };
+    $('btn-credits-skip').onclick = finish;
+    inner.onanimationend = finish;
+  }
 
   // Fade to black, run cb, fade back (sleeping)
   sleep(cb) {
@@ -652,7 +712,7 @@ class UI {
   }
 
   containerChanged(x, y, z) {
-    if (this.gui && this.gui.pos && this.gui.pos[0] === x && this.gui.pos[1] === y && this.gui.pos[2] === z) {
+    if (this.gui && this.gui.kind !== 'enchant' && this.gui.pos && this.gui.pos[0] === x && this.gui.pos[1] === y && this.gui.pos[2] === z) {
       if (!this.game.world.getData(x, y, z) || ![B.FURNACE, B.FURNACE_LIT, B.CHEST].includes(this.game.world.getBlock(x, y, z))) this.closeScreen();
       else this.renderGui();
     }
@@ -668,10 +728,11 @@ class UI {
       const left = p.inventory.add(s, PICKUP_ORDER);
       if (left) {
         const d = p.lookDir();
-        g.spawnItem(stackOf(s.id, left, s.dmg), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z);
+        g.spawnItem(stackOf(s.id, left, s.dmg, s.ench), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z);
       }
     };
     if (this.gui.grid) this.gui.grid.forEach(give);
+    if (this.gui.kind === 'enchant') { give(this.gui.item); give(this.gui.lapis); }
     give(this.cursor);
     this.cursor = null;
     if (this.gui.kind === 'chest') Sound.noise(350, 1, 0.3, 0.25);
@@ -683,8 +744,8 @@ class UI {
   }
 
   // Stack <-> stored array helpers for block data
-  static toArr(s) { return s ? [s.id, s.count, s.dmg || 0] : 0; }
-  static fromArr(a) { return a && ITEMS[a[0]] ? stackOf(a[0], a[1], a[2]) : null; }
+  static toArr(s) { return s ? (s.ench ? [s.id, s.count, s.dmg || 0, s.ench] : [s.id, s.count, s.dmg || 0]) : 0; }
+  static fromArr(a) { return a && ITEMS[a[0]] ? stackOf(a[0], a[1], a[2], a[3]) : null; }
 
   dataRef(i) {
     const g = this.game;
@@ -821,6 +882,21 @@ class UI {
       r.appendChild(arrow);
       addSlot(r, Object.assign(this.dataRef(2), { group: 'container', takeOnly: true }), 'big');
       playerInv();
+    } else if (gui.kind === 'enchant') {
+      title('Enchant');
+      const r = row('enchant-row');
+      const left = el('div', 'enchant-left');
+      r.appendChild(left);
+      const book = el('div', 'enchant-book');
+      left.appendChild(book);
+      const slots = el('div', 'enchant-slots');
+      left.appendChild(slots);
+      addSlot(slots, { group: 'container', get: () => gui.item, set: (st) => { gui.item = st; }, accepts: (st) => st.count === 1 || maxStack(st.id) === 1 });
+      addSlot(slots, { group: 'container', get: () => gui.lapis, set: (st) => { gui.lapis = st; }, accepts: (st) => st.id === ITEM.LAPIS }, 'lapis-slot');
+      const offers = el('div', 'enchant-offers');
+      r.appendChild(offers);
+      gui.offersEl = offers;
+      playerInv();
     } else if (gui.kind === 'chest') {
       title('Chest');
       gridOf(panel, 9, Array.from({ length: 27 }, (_, i) => Object.assign(this.dataRef(i), { group: 'container' })));
@@ -914,9 +990,42 @@ class UI {
         if (af) af.style.width = (d.cook / SMELT_TIME * 100) + '%';
       }
     }
+    if (gui.kind === 'enchant' && gui.offersEl) this.renderEnchantOffers();
     const ci = $('cursor-item');
     ci.hidden = !this.cursor;
     if (this.cursor) this.slotContent(ci, this.cursor);
+  }
+
+  renderEnchantOffers() {
+    const g = this.game, gui = this.gui, p = g.player;
+    const box = gui.offersEl;
+    box.innerHTML = '';
+    const offers = gui.item ? enchantOffers(gui.item, g.countBookshelves(...gui.pos), p.enchantSeed) : [];
+    const lvl = xpLevel(p.xp).level;
+    const glyphs = 'ᔑʖᓵ↸ᒷ⎓⊣⍑╎⋮ꖌꖎᒲリ𝙹!¡ᑑ∷ᓭℸ⚍⍊∴̇/||⨅';
+    for (let i = 0; i < 3; i++) {
+      const o = offers[i];
+      const btn = el('button', 'enchant-offer');
+      btn.type = 'button';
+      if (!o) { btn.classList.add('disabled'); box.appendChild(btn); continue; }
+      const k = Object.keys(o.ench)[0];
+      let gib = '';
+      for (let j = 0; j < 12; j++) gib += glyphs[(o.cost * 7 + j * 13 + i * 5) % glyphs.length];
+      btn.appendChild(el('span', 'eo-lapis', String(o.lapis)));
+      const mid = el('span', 'eo-text');
+      mid.appendChild(el('span', 'eo-gib', gib));
+      mid.appendChild(el('span', 'eo-hint', enchName(k, o.ench[k]) + ' . . . ?'));
+      btn.appendChild(mid);
+      btn.appendChild(el('span', 'eo-cost', String(o.cost)));
+      const creative = p.mode === 'creative';
+      const can = creative || (lvl >= o.cost && gui.lapis && gui.lapis.count >= o.lapis);
+      btn.classList.toggle('disabled', !can);
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (g.enchantItem(gui, i)) { p.inventory.changed(); this.renderGui(); } else Sound.click();
+      });
+      box.appendChild(btn);
+    }
   }
 
   showTooltip(entry) {
@@ -924,7 +1033,10 @@ class UI {
     const tt = $('tooltip');
     if (!s) { tt.hidden = true; return; }
     const tool = ITEMS[s.id].tool;
-    tt.textContent = ITEMS[s.id].name + (tool && s.dmg ? `  (${tool.uses - s.dmg}/${tool.uses})` : '');
+    tt.innerHTML = '';
+    const name = el('div', s.ench ? 'tt-name ench' : 'tt-name', ITEMS[s.id].name + (tool && s.dmg ? `  (${tool.uses - s.dmg}/${tool.uses})` : ''));
+    tt.appendChild(name);
+    if (s.ench) for (const [k, l] of Object.entries(s.ench)) if (ENCHANTS[k]) tt.appendChild(el('div', 'tt-ench', enchName(k, l)));
     tt.hidden = false;
   }
 
@@ -982,12 +1094,12 @@ class UI {
       if (!this.cursor) {
         if (cur) {
           const half = Math.ceil(cur.count / 2);
-          this.cursor = stackOf(cur.id, half, cur.dmg);
+          this.cursor = stackOf(cur.id, half, cur.dmg, cur.ench);
           cur.count -= half;
           ref.set(cur.count > 0 ? cur : null);
         }
       } else if (!ref.takeOnly && (!ref.accepts || ref.accepts(this.cursor))) {
-        if (!cur) { ref.set(stackOf(this.cursor.id, 1, this.cursor.dmg)); this.cursor.count--; }
+        if (!cur) { ref.set(stackOf(this.cursor.id, 1, this.cursor.dmg, this.cursor.ench)); this.cursor.count--; }
         else if (sameKind(cur, this.cursor) && cur.count < maxStack(cur.id)) { cur.count++; ref.set(cur); this.cursor.count--; }
         if (this.cursor.count <= 0) this.cursor = null;
       }
@@ -1011,6 +1123,9 @@ class UI {
       targets.reverse();
     } else if (gui.kind === 'chest') {
       targets = gui.slots.filter((e) => e.ref.group === 'container').map((e) => e.ref);
+    } else if (gui.kind === 'enchant') {
+      const cs = gui.slots.filter((e) => e.ref.group === 'container').map((e) => e.ref);
+      targets = s.id === ITEM.LAPIS ? [cs[1]] : s.count === 1 ? [cs[0]] : gui.slots.filter((e) => e.ref.group === (ref.group === 'hotbar' ? 'main' : 'hotbar')).map((e) => e.ref);
     } else if (gui.kind === 'furnace') {
       const cs = gui.slots.filter((e) => e.ref.group === 'container').map((e) => e.ref);
       targets = SMELTING[s.id] !== undefined ? [cs[0]] : ITEMS[s.id].fuel > 0 ? [cs[1]] : null;
@@ -1028,7 +1143,7 @@ class UI {
           const n = Math.min(left, maxStack(c.id) - c.count);
           c.count += n; left -= n; t.set(c);
         } else if (pass === 1 && !c) {
-          t.set(stackOf(s.id, left, s.dmg)); left = 0;
+          t.set(stackOf(s.id, left, s.dmg, s.ench)); left = 0;
         }
       }
     }
@@ -1065,7 +1180,7 @@ class UI {
           if (s) {
             const n = e.ctrlKey ? s.count : 1;
             const d = p.lookDir();
-            g.spawnItem(stackOf(s.id, n, s.dmg), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z, new THREE.Vector3(d.x * 4, 2, d.z * 4));
+            g.spawnItem(stackOf(s.id, n, s.dmg, s.ench), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z, new THREE.Vector3(d.x * 4, 2, d.z * 4));
             s.count -= n; ref.set(s.count > 0 ? s : null); p.inventory.changed(); this.renderGui();
           }
         }
@@ -1146,7 +1261,7 @@ class UI {
       const p = g.player;
       const d = p.lookDir();
       const n = e.button === 2 ? 1 : this.cursor.count;
-      g.spawnItem(stackOf(this.cursor.id, n, this.cursor.dmg), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z, new THREE.Vector3(d.x * 4, 2, d.z * 4));
+      g.spawnItem(stackOf(this.cursor.id, n, this.cursor.dmg, this.cursor.ench), p.pos.x + d.x, p.pos.y + 1.4, p.pos.z + d.z, new THREE.Vector3(d.x * 4, 2, d.z * 4));
       this.cursor.count -= n;
       if (this.cursor.count <= 0) this.cursor = null;
       this.renderGui();

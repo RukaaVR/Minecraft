@@ -3,7 +3,7 @@
 
 const TILE = 16;          // pixels per tile
 const ATLAS_COLS = 16;
-const ATLAS_ROWS = 16;
+const ATLAS_ROWS = 24;
 
 // Tile indices in the atlas
 const T = {
@@ -73,6 +73,10 @@ function defBlock(id, name, tiles, o = {}) {
     translucent: !!o.translucent,   // rendered in the transparent pass
     mat: 0,                         // shader material id (set below)
   };
+  // Optional behaviour hooks used by later files
+  for (const k of ['shape', 'collide', 'leaves', 'emissive', 'matOverride', 'climbable', 'redstone', 'slow', 'dataTile', 'baseBlock', 'needsWall', 'fenceLike']) {
+    if (o[k] !== undefined) BLOCKS[id][k] = o[k];
+  }
 }
 const dropNone = () => [];
 defBlock(B.AIR, 'Air', 0, { solid: false, hardness: 0, replaceable: true, inCreative: false });
@@ -165,20 +169,25 @@ const OPAQUE = new Uint8Array(256);
 const LIGHT_PASS = new Uint8Array(256); // 0 = blocks light, else 1 + extra cost
 const EMIT = new Uint8Array(256);
 const FLUID = new Uint8Array(256); // 0 none, 1 water, 2 lava
-for (const b of BLOCKS) {
-  if (!b) continue;
-  OPAQUE[b.id] = (b.id !== B.AIR && !b.cutout && !b.liquid && !b.fluid && !b.translucent && b.model === 'cube' && b.height === 1) ? 1 : 0;
-  LIGHT_PASS[b.id] = OPAQUE[b.id] ? 0 : 1 + b.lightCost;
-  EMIT[b.id] = b.light;
-  FLUID[b.id] = b.fluid === 'water' ? 1 : b.fluid === 'lava' ? 2 : 0;
-  // Material ids for the shaders (see halcyon_glsl.js)
-  if (b.id === B.LEAVES) b.mat = 2;
-  else if (b.model === 'cross') b.mat = 1;
-  else if (b.fluid === 'lava' || b.id === B.GLOWSTONE || b.id === B.TORCH) b.mat = 4;
-  else if (b.id === B.GRASS) b.mat = 6;
-  else if (b.fluid === 'water') b.mat = 10;
-  else if (b.model === 'pane') b.mat = 12;
+// (Re)build the lookup tables; called again after later files add blocks.
+function buildBlockTables() {
+  for (const b of BLOCKS) {
+    if (!b) continue;
+    OPAQUE[b.id] = (b.id !== B.AIR && !b.cutout && !b.liquid && !b.fluid && !b.translucent && b.model === 'cube' && b.height === 1) ? 1 : 0;
+    LIGHT_PASS[b.id] = OPAQUE[b.id] ? 0 : 1 + b.lightCost;
+    EMIT[b.id] = b.light;
+    FLUID[b.id] = b.fluid === 'water' ? 1 : b.fluid === 'lava' ? 2 : 0;
+    // Material ids for the shaders (see halcyon_glsl.js)
+    if (b.leaves || b.id === B.LEAVES) b.mat = 2;
+    else if (b.model === 'cross') b.mat = 1;
+    else if (b.fluid === 'lava' || b.emissive || b.id === B.GLOWSTONE || b.id === B.TORCH) b.mat = 4;
+    else if (b.id === B.GRASS) b.mat = 6;
+    else if (b.fluid === 'water') b.mat = 10;
+    else if (b.model === 'pane') b.mat = 12;
+    else if (b.matOverride !== undefined) b.mat = b.matOverride;
+  }
 }
+buildBlockTables();
 function isWater(id) { return FLUID[id] === 1; }
 function isLava(id) { return FLUID[id] === 2; }
 // Fluid surface height (0..1) for a fluid block

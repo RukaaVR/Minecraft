@@ -138,6 +138,7 @@ function paintExtraTiles(painter, vary, clear, h) {
   p = painter(T.MOSSY_COBBLE, 725); cobbleLike(p); speckle(p, [80, 120, 50], 30, 2);
 
   paintItems2(painter, vary, clear);
+  if (typeof paintTiles3 === 'function') paintTiles3(painter, vary, clear, h);
 }
 
 function paintItems2(painter, vary, clear) {
