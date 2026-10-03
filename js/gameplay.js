@@ -47,7 +47,10 @@ Object.assign(Game.prototype, {
   },
 
   _switchWorld(dim) {
+    const keep = this.remotePlayers;
+    this.remotePlayers = new Map();
     this._resetEntities();
+    this.remotePlayers = keep;
     if (this.world) this.world.dispose();
     this.world = this.worldFor(dim);
     this.player.world = this.world;

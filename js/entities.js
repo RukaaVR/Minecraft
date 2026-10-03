@@ -162,7 +162,7 @@ class Mob {
         } else this.fuse = Math.max(0, this.fuse - dt);
         if (this.fuse >= 1.5) {
           this.deathTime = 99;
-          this.game.explode(this.pos.x, this.pos.y + 0.5, this.pos.z, 3, true);
+          this.game.explode(this.pos.x, this.pos.y + 0.5, this.pos.z, this.charged ? 6 : 3, true);
           return;
         }
         if (this.fuse === 0) { dirX = dx / d; dirZ = dz / d; speed = this.info.speed; }
@@ -344,6 +344,7 @@ class Mob {
     if (this.type === 'ghast') light = Math.max(light, this.game.lightAt(this.pos.x, this.pos.y + 1, this.pos.z) * 1.2);
     if (this.hurtTime > 0 || this.dead) m.mat.color.setRGB(Math.max(0.6 * light * 2, light), light * 0.3, light * 0.3);
     else if (this.fuse > 0 && Math.floor(this.fuse * 8) % 2 === 0) m.mat.color.setRGB(light * 2.5, light * 2.5, light * 2.5);
+    else if (this.charged) m.mat.color.setRGB(light * 0.75, light * 0.95, light * 1.6);
     else m.mat.color.setRGB(light, light, light);
     if (MOB_RENDER[this.type]) MOB_RENDER[this.type].call(this, light);
   }
@@ -417,7 +418,8 @@ class Projectile {
       const candidates = [];
       for (const m of g.mobs.values()) if (m !== this.owner && !m.dead) candidates.push(m);
       if (!this.fromPlayer && g.player && !g.player.dead && g.player.mode !== 'spectator') candidates.push('local');
-      if (this.fromPlayer) for (const rp of g.remotePlayers.values()) candidates.push(rp);
+      // the host also simulates its mobs' arrows hitting other players
+      if (this.fromPlayer || (g.isAuthority && this.owner instanceof Mob)) for (const rp of g.remotePlayers.values()) candidates.push(rp);
       for (const c of candidates) {
         let t;
         if (c === 'local') {
@@ -472,7 +474,7 @@ class Projectile {
     const speed = this.vel.length();
     const dmg = this.damage || Math.max(1, Math.ceil(speed / 30 * 9));
     if (c === 'local') g.player.damage(dmg, 'arrow', { x: dir.x * 4, y: 3, z: dir.z * 4 });
-    else if (c instanceof RemotePlayer) g.net.send('hurt', { to: c.peer, dmg, kx: dir.x * 4, ky: 3, kz: dir.z * 4 });
+    else if (c instanceof RemotePlayer) g.net.send('hurt', { to: c.peer, dmg, kx: dir.x * 4, ky: 3, kz: dir.z * 4, by: this.owner && this.owner.name ? this.owner.name : undefined });
     else if (c instanceof Mob) {
       if (g.isAuthority) { if (c.hurt(dmg, dir.x, dir.z, null) && c.dead) g.onMobKilled(c, null); }
       else { c.hurtTime = 0.4; g.net.send('hitmob', { id: c.id, dmg, kx: dir.x, kz: dir.z }); }

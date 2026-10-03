@@ -107,7 +107,9 @@ Object.assign(MOB_AI, {
       // Tamed: attack what the owner fights, otherwise follow
       if (g.ownerTarget && g.ownerTarget !== this && !g.ownerTarget.dead && g.ownerTarget.pos.distanceTo(this.pos) < 20) target = g.ownerTarget;
       if (target) { this._seek(dt, target.pos, 3.6, 1.2); this._melee(target, 4); return; }
-      const op = g.player.pos;
+      // follow whoever tamed it (the host or a friend)
+      let op = g.player.pos;
+      if (this.owner && this.owner !== g.settings.name) for (const rp of g.remotePlayers.values()) if (rp.name === this.owner) op = rp.pos;
       const d = op.distanceTo(this.pos);
       if (d > 24) { this.pos.set(op.x + 1, op.y, op.z + 1); this.vel.set(0, 0, 0); }
       this._seek(dt, d > 4 ? op : null, 3.4, 3);

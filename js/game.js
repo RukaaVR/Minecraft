@@ -572,7 +572,10 @@ class Game {
     if (authority) {
       for (const m of this.mobs.values()) {
         const { dmg, dir } = hurt(m.pos);
-        if (dmg > 0) m.hurt(dmg, dir.x, dir.z, null);
+        if (dmg <= 0) continue;
+        // Only the host's mobs are real; a client asks the host to apply the damage
+        if (this.isAuthority) { if (m.hurt(dmg, dir.x, dir.z, null) && m.dead) this.onMobKilled(m, null); }
+        else this.net.send('hitmob', { id: m.id, dmg: Math.min(20, dmg), kx: dir.x, kz: dir.z });
       }
     }
     for (const it of this.items) {
@@ -1049,6 +1052,7 @@ class Game {
       m.fuse = fuse / 10;
       if (a[8]) m.swing = 1;
       if (typeof a[11] === 'number') m.health = a[11];
+      if (typeof a[13] === 'string' && m.botInfo && a[13] !== m.botInfo && m.botUpdate) m.botUpdate(a[13]);
       m.owner = a[12] ? m.owner || 'remote' : null;
     }
     for (const [id, m] of this.mobs) if (!seen.has(id)) { m.dispose(); this.mobs.delete(id); }
@@ -1126,6 +1130,7 @@ class Game {
       if (!this.isAuthority) return;
       const m = this.mobs.get(d.id);
       if (!m || m.dead) return;
+      if (d.act === 'tame' || d.act === 'shear') { const rp = this.remotePlayers.get(from); this.remoteMobAction(m, d.act, rp ? rp.name : null, from); return; }
       const dmg = Math.max(0, Math.min(20, +d.dmg || 0));
       if (m.hurt(dmg, +d.kx || 0, +d.kz || 0, from) && m.dead) this.onMobKilled(m, from);
     });

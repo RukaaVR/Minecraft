@@ -138,6 +138,7 @@ MOB_INIT.bot = function (extra) {
   this.team = info.team;
   this.npc = info.npc;
   this.model.mat.dispose();
+  this.model.root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   if (info.npc === 'shop') { this.model = buildModel('villager_armorer'); this.profession = 'armorer'; }
   else this.model = buildBotModel(info);
   this.w = 0.6; this.h = 1.8;
@@ -367,7 +368,14 @@ Object.assign(MOB_AI, {
         if (!near || nd > 10) { this._botMove(dt, new THREE.Vector3(home.gen[0], 0, home.gen[2]), 4.3, 1); return; }
       }
       // Out of blocks away from home: walk back along the bridge to restock
-      if (!atHome && this.blocks <= 0 && (!near || nd > 6)) { this._botMove(dt, new THREE.Vector3(home.gen[0], 0, home.gen[2]), 4.3, 1); return; }
+      if (atHome) this.strandT = 0;
+      if (!atHome && this.blocks <= 0 && (!near || nd > 6)) {
+        // stranded at a gap: find a few blocks left in the pocket after a while
+        this.strandT = (this.strandT || 0) + dt;
+        if (this.strandT > 8) { this.strandT = 0; this.blocks = 24; }
+        this._botMove(dt, new THREE.Vector3(home.gen[0], 0, home.gen[2]), 4.3, 1);
+        return;
+      }
       if (near && nd < (this.role === 'defender' ? 12 : 9)) {
         this._botMove(dt, near.pos, 5.6, 2.2);
         this._botFight(dt, near);
@@ -830,7 +838,8 @@ Object.assign(Game.prototype, {
       // After 12 minutes every bed breaks (sudden death)
       if (nw.elapsed > 720 && nw.beds.some((b) => b)) {
         nw.spec.teams.forEach((t, i) => { if (nw.beds[i]) { this.changeBlock(...t.bed[0], B.AIR, { noUpdate: true }); this.changeBlock(...t.bed[1], B.AIR, { noUpdate: true }); nw.beds[i] = false; } });
-        this.nwFeed([['All beds have been destroyed! ', '#FF5555'], ['SUDDEN DEATH', '#FFAA00']]);
+        nw.sudden = true;
+        this.nwFeed([['All beds have been destroyed! ', '#FF5555'], ['SUDDEN DEATH', '#FFAA00']], { ev: 'sudden' });
       }
     }
     // Win check
@@ -972,7 +981,7 @@ Object.assign(Game.prototype, {
     const me = nw.me;
     const myName = this.settings.name;
     const recent = this.lastHurtBy && performance.now() - this.lastHurtBy.t < 10000 ? this.lastHurtBy.name : null;
-    const final = nw.kind === 'skywars' || !nw.beds[nw.myTeam];
+    const final = nw.kind !== 'bedwars' || !nw.beds[nw.myTeam];
     this.nwKillFeed(myName, nw.myTeam, recent, cause === 'void', final);
     this.lastHurtBy = null;
     // Items: SkyWars drops everything; Bed Wars keeps armor and tools
@@ -1024,7 +1033,7 @@ Object.assign(Game.prototype, {
       else if (by === null) killer = this.settings.name;
       else if (typeof by === 'string' && by !== 'env') { const rp = this.remotePlayers.get(by); killer = rp ? rp.name : null; }
     }
-    const final = nw.kind === 'skywars' || !nw.beds[mem.team];
+    const final = nw.kind !== 'bedwars' || !nw.beds[mem.team];
     this.nwKillFeed(mem.name, mem.team, killer, mob.pos.y < nw.spec.voidY + 2, final);
     if (final) { mem.alive = false; mem.final = true; }
     else nw.respawnQueue.push({ at: this.simTime + 5, mem });
@@ -1583,7 +1592,7 @@ Object.assign(Game.prototype, {
     const have = p.inventory.count(ITEM.DIAMOND);
     if (have < cost) { this.chat.rich([[`You don't have enough Diamond! Need ${cost - have} more!`, '#FF5555']]); Sound.tone(200, 0.15, 0.2, 'square', 0); return; }
     this.nwTake(ITEM.DIAMOND, cost);
-    if (this.isAuthority) nw.up[nw.myTeam][idx]++;
+    nw.up[nw.myTeam][idx]++; // clients count it now; the host's state confirms it
     const tm = NOVA_TEAMS[nw.myTeam];
     this.nwFeed([[this.settings.name, tm.color], [' purchased ', '#55FF55'], [up.name + (up.costs.length > 1 ? ' ' + ROMAN_N[lvl + 1] : ''), '#FFAA00']], this.isAuthority ? null : { upg: { t: nw.myTeam, i: idx } });
     Sound.tone(900, 0.12, 0.2, 'triangle', 300);
@@ -1725,6 +1734,7 @@ Object.assign(Game.prototype, {
       if (rp.tagKey === key) continue;
       rp.tagKey = key;
       rp.model.root.remove(rp.tag);
+      if (rp.tag.material) { if (rp.tag.material.map) rp.tag.material.map.dispose(); rp.tag.material.dispose(); }
       const lines = [{ segs }];
       if (hp !== null) lines.push({ segs: [[String(hp), '#FFFFFF'], [' ❤', '#FF5555']], size: 22 });
       rp.tag = novaTag(lines, 0.26);
@@ -1963,6 +1973,13 @@ Object.assign(Game.prototype, {
   const hit = Projectile.prototype.onHitEntity;
   Projectile.prototype.onHitEntity = function (c, dir) {
     const g = this.game;
+    const nw = g.nw;
+    if (nw && nw.kind !== 'lobby') {
+      // no friendly fire from arrows
+      const ownTeam = this.owner instanceof Mob ? this.owner.team : this.fromPlayer ? nw.myTeam : undefined;
+      const hitTeam = c === 'local' ? nw.myTeam : c instanceof RemotePlayer ? nw.teamOfName(c.name) : c instanceof Mob ? c.team : undefined;
+      if (ownTeam !== undefined && ownTeam >= 0 && ownTeam === hitTeam) return;
+    }
     if (c === 'local' && this.owner instanceof Mob && this.owner.name) g.lastHurtBy = { name: this.owner.name, t: performance.now() };
     if (c instanceof Mob && c.type === 'bot' && this.owner instanceof Mob && this.kind === 'arrow' && g.isAuthority) {
       if (this.owner.team === c.team) return;
@@ -2126,3 +2143,11 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyP') { if (g.isAuthority) g.nwQueue(nw.kind); else g.chat.rich([['Only the host can start a game.', '#FF5555']]); }
   if (e.code === 'KeyL') g.runCommand('/lobby');
 });
+
+// Clients refresh a bot's sword when the host's description of it changes
+Mob.prototype.botUpdate = function (str) {
+  const info = decodeBot(str);
+  this.botInfo = str;
+  if (info.sword >= 0 && info.sword !== this.swordTier) { this.swordTier = info.sword; this._setWeapon(toolId(info.sword, 3)); }
+  if (this.bot) this.bot.sword = info.sword;
+};

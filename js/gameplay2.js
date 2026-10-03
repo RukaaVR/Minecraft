@@ -194,6 +194,15 @@ Object.assign(Game.prototype, {
   // Right-clicking a mob with something
   useOnMob(m, held) {
     const p = this.player;
+    if (!this.isAuthority && ((m.type === 'wolf' && held && held.id === ITEM.BONE && !m.owner) || (m.type === 'sheep' && held && held.id === ITEM.SHEARS))) {
+      // the host owns the mobs: ask it to tame or shear
+      const act = m.type === 'wolf' ? 'tame' : 'shear';
+      if (act === 'tame' && p.mode !== 'creative') p.inventory.removeFrom(p.selected, 1);
+      if (act === 'shear' && p.mode !== 'creative') this.damageHeld(1);
+      this.net.send('hitmob', { id: m.id, dmg: 0, act });
+      this.doSwing(); this.useCooldown = 0.3;
+      return true;
+    }
     if (m.type === 'wolf' && held && held.id === ITEM.BONE && !m.owner) {
       if (p.mode !== 'creative') p.inventory.removeFrom(p.selected, 1);
       if (Math.random() < 1 / 3 || p.mode === 'creative') {
@@ -559,5 +568,18 @@ Object.assign(Game.prototype, {
     else if (p.sneaking) p.vel.y = 0;
     else p.vel.y = Math.max(p.vel.y, -2.4);
     p.fallStart = null;
+  },
+});
+
+Object.assign(Game.prototype, {
+  // Host: a client tamed a wolf or sheared a sheep
+  remoteMobAction(m, act, name, peer) {
+    if (act === 'tame' && m.type === 'wolf' && !m.owner) {
+      if (Math.random() < 1 / 3) { m.owner = name || 'friend'; m.angry = 0; this.net.send('chat', { n: '', t: `${name || 'A player'} tamed a wolf` }); }
+    } else if (act === 'shear' && m.type === 'sheep' && !m.sheared) {
+      m.sheared = true;
+      if (m.model.parts.body) m.model.parts.body.scale.set(0.8, 0.85, 0.9);
+      this.net.send('mobdrop', { to: peer, x: m.pos.x, y: m.pos.y + 1, z: m.pos.z, items: [[B.WOOL_WHITE, 1 + Math.floor(Math.random() * 3)]] });
+    }
   },
 });
