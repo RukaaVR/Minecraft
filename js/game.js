@@ -450,8 +450,10 @@ class Game {
 
   damagePlayer(target, dmg, knock, cause) {
     if (dmg <= 0) return;
-    if (target.local) this.player.damage(dmg, cause, knock);
-    else this.net.send('hurt', { to: target.peer, dmg, kx: knock.x, ky: knock.y, kz: knock.z });
+    if (target.local) {
+      if (this.curAttacker) this.lastHurtBy = { name: this.curAttacker, t: performance.now() };
+      this.player.damage(dmg, cause, knock);
+    } else this.net.send('hurt', { to: target.peer, dmg, kx: knock.x, ky: knock.y, kz: knock.z, by: this.curAttacker || undefined });
   }
 
   get isAuthority() { return !this.net.active || this.net.isHost; }
@@ -1020,7 +1022,7 @@ class Game {
       let flags = 0;
       if (m.hurtTime > 0) flags |= 1;
       if (m.dead) flags |= 2;
-      out.push([m.id, MOB_TYPES.indexOf(m.type), Math.round(m.pos.x * 10), Math.round(m.pos.y * 10), Math.round(m.pos.z * 10), Math.round(m.yaw * 100), flags, Math.round(m.fuse * 10), m.swing > 0.5 ? 1 : 0, m.profession ? PROFESSIONS.indexOf(m.profession) : -1, m.size || 0, Math.ceil(m.health), m.owner ? 1 : 0]);
+      out.push([m.id, MOB_TYPES.indexOf(m.type), Math.round(m.pos.x * 10), Math.round(m.pos.y * 10), Math.round(m.pos.z * 10), Math.round(m.yaw * 100), flags, Math.round(m.fuse * 10), m.swing > 0.5 ? 1 : 0, m.profession ? PROFESSIONS.indexOf(m.profession) : -1, m.size || 0, Math.ceil(m.health), m.owner ? 1 : 0, m.botInfo || 0]);
     }
     return out;
   }
@@ -1036,7 +1038,7 @@ class Game {
       seen.add(id);
       let m = this.mobs.get(id);
       if (!m) {
-        m = new Mob(this, type, x / 10, y / 10, z / 10, id, { profession: PROFESSIONS[a[9]] || undefined, size: a[10] || undefined });
+        m = new Mob(this, type, x / 10, y / 10, z / 10, id, { profession: PROFESSIONS[a[9]] || undefined, size: a[10] || undefined, info: typeof a[13] === 'string' ? a[13] : undefined });
         this.mobs.set(id, m);
       }
       m.target.set(x / 10, y / 10, z / 10);
@@ -1059,6 +1061,7 @@ class Game {
       net.sendWorldTo(from, {
         seed: this.world.seed, mode: this.defaultMode, difficulty: this.difficulty,
         time: this.timeOfDay, spawn: this.worldSpawn, name: this.worldName,
+        nw: this.nw ? this.nw.welcomeInfo() : undefined,
       });
     });
     net.on('welcome', (d) => {
@@ -1066,6 +1069,7 @@ class Game {
       this.awaitingWelcome = false;
       if (typeof d.seed !== 'number') return;
       this.startRemoteWorld(d);
+      if (d.nw && typeof this.joinRemoteNetwork === 'function') this.joinRemoteNetwork(d.nw);
       this.ui.onJoined();
     });
     net.on('edits', (d) => {
@@ -1089,8 +1093,9 @@ class Game {
       if (this.isAuthority) { this.scheduleAround(x, y, z); this.redstoneNotify(x, y, z, old, id); }
       if (this.ui) this.ui.containerChanged(x, y, z);
     };
-    net.on('block', (d) => {
+    net.on('block', (d, from) => {
       if (!this.world) return;
+      this.lastBlockFrom = from;
       applyBlock(d.x, d.y, d.z, d.id, d.w);
       if (typeof d.f === 'number' && (d.w | 0) === this.world.dim) this.world.setData(d.x, d.y, d.z, Object.assign({}, this.world.getData(d.x, d.y, d.z) || {}, { facing: d.f & 3 }));
     });
@@ -1110,6 +1115,7 @@ class Game {
       if (this.ui) this.ui.containerChanged(d.x, d.y, d.z);
     });
     net.on('chat', (d, from) => {
+      if (this.chatHook && this.chatHook(d, from)) return;
       const t = String(d.t || '').slice(0, 256);
       if (!t) return;
       if (d.n) this.chat.add(`<${String(d.n).slice(0, 24)}> ${t}`);
@@ -1122,8 +1128,10 @@ class Game {
       const dmg = Math.max(0, Math.min(20, +d.dmg || 0));
       if (m.hurt(dmg, +d.kx || 0, +d.kz || 0, from) && m.dead) this.onMobKilled(m, from);
     });
-    net.on('hurt', (d) => {
+    net.on('hurt', (d, from) => {
       if (!this.player) return;
+      const rp = this.remotePlayers.get(from);
+      this.lastHurtBy = { name: typeof d.by === 'string' ? d.by.slice(0, 24) : rp ? rp.name : null, t: performance.now() };
       const dmg = Math.max(0, Math.min(40, +d.dmg || 0));
       this.player.damage(dmg, 'player', { x: +d.kx || 0, y: +d.ky || 4, z: +d.kz || 0 });
     });
@@ -1150,12 +1158,14 @@ class Game {
           if (this.mode === 'play') this.chat.system(`${rp.name} joined the game`, '#ff5');
         }
         rp.applyState(pres);
+        rp.pres = pres;
         if (pres.host && !this.isAuthority) {
           if (typeof pres.t === 'number') this.timeOfDay = pres.t;
           if (typeof pres.wr === 'number') { this.weather.raining = !!(pres.wr & 1); this.weather.thundering = !!(pres.wr & 2); }
           const same = (pres.d | 0) === this.world.dim;
           this.applyMobState(same ? pres.mobs : []);
           this.applyProjectileState(same ? pres.pr : []);
+          if (this.onHostPresence) this.onHostPresence(pres);
         }
       }
       for (const [id, rp] of this.remotePlayers) {
@@ -1212,6 +1222,7 @@ class Game {
       pres.mobs = this.serializeMobs();
       pres.pr = this.serializeProjectiles();
     }
+    if (this.presenceExtra) this.presenceExtra(pres);
     this.net.presence(pres);
   }
 

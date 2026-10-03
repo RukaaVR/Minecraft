@@ -572,7 +572,7 @@ class RemotePlayer {
     if (typeof s.n === 'string') this.setName(s.n.slice(0, 24));
     if (typeof s.m === 'string') this.mode = s.m;
     this.sneak = !!s.k;
-    this.dim = s.d === 1 ? 1 : 0;
+    this.dim = s.d === 1 || s.d === 2 ? s.d : 0;
     if (typeof s.s === 'number' && s.s !== this.lastSwingCount) { this.lastSwingCount = s.s; this.swing = 1; }
     const held = +s.h || 0;
     if (held !== this.held) this.setHeld(held);

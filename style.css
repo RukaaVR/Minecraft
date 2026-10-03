@@ -269,3 +269,29 @@ kbd { color: var(--ink); background: #222; border: 1px solid #555; padding: 0 4p
 #btn-credits-skip { position: absolute; right: 16px; bottom: 16px; width: auto; padding: 0 16px; }
 @keyframes credits { from { top: 100%; } to { top: -120%; } }
 @media (prefers-reduced-motion: reduce) { #credits-scroll { animation-duration: 1s; } }
+
+/* Nova Network: sidebar scoreboard, titles, tab list, game menu */
+#nova-board { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); min-width: 190px; max-width: calc(100vw - 32px); padding: 2px 8px 4px; background: rgba(0, 0, 0, 0.42); pointer-events: none; font-size: 19px; line-height: 1.05; z-index: 5; }
+#nova-board .nb-title { text-align: center; color: #FFFF55; font-weight: bold; padding: 2px 0 4px; }
+#nova-board .nb-line { white-space: nowrap; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6); }
+#nova-title { position: fixed; left: 0; right: 0; top: 26%; text-align: center; pointer-events: none; transition: opacity 0.35s; z-index: 6; padding: 0 16px; }
+#nova-title .nt-main { font-family: var(--font-logo); font-size: clamp(28px, 7vw, 56px); text-shadow: 4px 4px 0 rgba(0, 0, 0, 0.55); }
+#nova-title .nt-sub { margin-top: 10px; font-size: clamp(18px, 3.4vw, 28px); color: #fff; text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6); }
+#nova-tab { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(720px, calc(100vw - 32px)); padding: 6px 10px; background: rgba(0, 0, 0, 0.55); z-index: 7; pointer-events: none; font-size: 19px; }
+#nova-tab .tab-head, #nova-tab .tab-foot { text-align: center; color: #fff; padding: 2px 0 6px; }
+#nova-tab .tab-foot { color: #55FFFF; padding: 6px 0 0; }
+#nova-tab .tab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px 8px; }
+#nova-tab .tab-row { display: flex; justify-content: space-between; gap: 6px; background: rgba(255, 255, 255, 0.08); padding: 0 4px; white-space: nowrap; overflow: hidden; }
+#nova-tab .tab-ping { color: #55FF55; font-size: 12px; letter-spacing: -1px; align-self: center; }
+.nova-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 52px; background: #3f6a3a; }
+.nova-btn .nova-sub { font-size: 16px; color: #FFFF55; text-shadow: 1px 1px 0 #000; }
+.gui-netmenu { width: min(560px, calc(100vw - 32px)); }
+.netmenu-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.netmenu-game { display: flex; align-items: center; gap: 12px; padding: 8px 10px; text-align: left; font: inherit; background: #8b8b8b; border: 2px solid #373737; box-shadow: inset 2px 2px 0 #fff; cursor: pointer; color: #000; }
+.netmenu-game:hover { background: #a0a6d8; }
+.netmenu-info { display: flex; flex-direction: column; min-width: 0; }
+.netmenu-title { font-weight: bold; font-size: 24px; text-shadow: 2px 2px 0 #3f3f3f; }
+.netmenu-mode { color: #333; font-size: 17px; }
+.netmenu-desc { color: #222; font-size: 18px; }
+.netmenu-click { color: #2a6a1a; font-size: 18px; }
+.netmenu-foot { color: #3f3f3f; font-size: 17px; text-align: center; margin-top: 4px; }

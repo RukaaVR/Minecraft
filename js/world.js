@@ -186,6 +186,7 @@ class World {
   }
 
   generateChunk(cx, cz) {
+    if (this.arena) return this.generateArena(cx, cz);
     if (this.dim === 1) return this.generateNether(cx, cz);
     if (this.dim === 2) return this.generateEnd(cx, cz);
     const chunk = new Chunk(cx, cz);
@@ -415,6 +416,18 @@ class World {
           maxY = Math.max(maxY, pl.h + 3);
         }
       }
+    }
+    return this._finishChunk(chunk, Math.min(WORLD_HEIGHT, maxY));
+  }
+
+  // Minigame maps: built from a fixed layout (see network.js), void everywhere else.
+  generateArena(cx, cz) {
+    const chunk = new Chunk(cx, cz);
+    const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
+    let maxY = 1;
+    for (const [x, y, z, id] of Arena.blocksForChunk(this, cx, cz)) {
+      chunk.set(x - ox, y, z - oz, id);
+      if (y + 2 > maxY) maxY = y + 2;
     }
     return this._finishChunk(chunk, Math.min(WORLD_HEIGHT, maxY));
   }

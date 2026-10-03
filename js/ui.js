@@ -191,6 +191,12 @@ class UI {
       this.join('ws', url);
     };
     $('btn-mp-back').onclick = () => this.showScreen('title');
+    $('btn-mp-nova').onclick = () => {
+      this.game.settings.name = this.cleanName($('mp-name').value);
+      this.saveSettings();
+      if (this.lobbyUnsub) { this.lobbyUnsub(); this.lobbyUnsub = null; }
+      this.enterGame(() => this.game.startNetwork());
+    };
     $('mp-name').onchange = () => { this.game.settings.name = this.cleanName($('mp-name').value); this.saveSettings(); };
 
     // Options
@@ -809,7 +815,7 @@ class UI {
 
     if (gui.kind === 'trade') {
       const mob = gui.mob;
-      title(`${mob.profession[0].toUpperCase() + mob.profession.slice(1)} Villager`);
+      title(mob.npc === 'shop' ? 'Item Shop' : `${mob.profession[0].toUpperCase() + mob.profession.slice(1)} Villager`);
       const list = el('div', 'trade-list');
       panel.appendChild(list);
       const inv = this.game.player.inventory;
@@ -1034,7 +1040,7 @@ class UI {
     if (!s) { tt.hidden = true; return; }
     const tool = ITEMS[s.id].tool;
     tt.innerHTML = '';
-    const name = el('div', s.ench ? 'tt-name ench' : 'tt-name', ITEMS[s.id].name + (tool && s.dmg ? `  (${tool.uses - s.dmg}/${tool.uses})` : ''));
+    const name = el('div', s.ench ? 'tt-name ench' : 'tt-name', (s.label || ITEMS[s.id].name) + (tool && s.dmg ? `  (${tool.uses - s.dmg}/${tool.uses})` : ''));
     tt.appendChild(name);
     if (s.ench) for (const [k, l] of Object.entries(s.ench)) if (ENCHANTS[k]) tt.appendChild(el('div', 'tt-ench', enchName(k, l)));
     tt.hidden = false;
@@ -1349,7 +1355,8 @@ class Chat {
     const box = $('chat-lines');
     box.innerHTML = '';
     for (const l of this.lines.slice(-50)) {
-      const d = el('div', 'chat-line', l.text);
+      const d = el('div', 'chat-line', l.segs ? '' : l.text);
+      if (l.segs) for (const [t, c] of l.segs) { const sp = el('span', '', t); if (c) sp.style.color = c; d.appendChild(sp); }
       if (l.color) d.style.color = l.color;
       d.dataset.t = l.t;
       box.appendChild(d);

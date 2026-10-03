@@ -56,6 +56,10 @@
   <div id="sleep-overlay" hidden></div>
 
   <!-- Death -->
+  <div id="nova-board" hidden></div>
+  <div id="nova-title" hidden><div class="nt-main"></div><div class="nt-sub"></div></div>
+  <div id="nova-tab" hidden></div>
+
   <div id="credits" hidden>
     <div id="credits-scroll"></div>
     <button id="btn-credits-skip" class="btn small">Skip</button>
@@ -130,6 +134,8 @@
       <label for="mp-name">Your username</label>
       <input id="mp-name" type="text" maxlength="16" class="field">
     </div>
+    <h3>Minigame network</h3>
+    <button id="btn-mp-nova" class="btn nova-btn">Play on Nova Network <span class="nova-sub">Bed Wars · SkyWars · Parkour · bots</span></button>
     <h3>Friends' worlds</h3>
     <div id="mp-list" class="list short"></div>
     <div id="mp-code-row" class="form row" hidden>
@@ -216,7 +222,9 @@
   <script src="js/redstone.js"></script>
   <script src="js/enchant.js"></script>
   <script src="js/weather.js"></script>
+  <script src="js/arena.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/network.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

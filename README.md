@@ -12,6 +12,18 @@ A Minecraft-style game that runs in the browser: survival, creative, adventure a
 
 Server options: `npm start -- --seed=hello --mode=creative --difficulty=hard --port=25565 --name="My Server"`. The server saves the world to `server/world.json`.
 
+## Nova Network (minigames with bots)
+
+**Multiplayer → Play on Nova Network** joins an original minigame network in the style of the big Minecraft minigame servers:
+
+- **Lobby hub**: a floating island with a fountain, gardens, NPCs for each game, a parkour course with a timer and best time, a sidebar scoreboard, ranks in chat ([VIP], [VIP+], [MVP], [MVP+]), and bot players who walk around and chat. Hold **Tab** for the player list. Right-click the **Game Menu** book or an NPC to play, or type `/play bedwars` or `/play skywars`. The emerald (or `/stats`) shows your profile.
+- **Bed Wars**: 4 teams of 2 on sky islands. Iron and gold generators on each island, diamonds on the side islands and emeralds in the middle. Buy wool, swords, armor, tools, bows, TNT (which lights itself) and ender pearls from the Item Shop. While your bed stands you respawn after 5 seconds; once it's broken, death is final. You can only break blocks players placed, plus enemy beds. Every bed breaks at 12 minutes (sudden death).
+- **SkyWars**: 8 players start in glass cages over their own islands. Loot chests, bridge to the middle for better gear, and be the last one standing.
+- **Bots** take every slot that isn't a real player. They buy gear, bridge across the void with wool, defend or rush beds, fight with swords, and can be knocked off the map.
+- Kill feed, final kills, bed destruction messages, VICTORY/GAME OVER titles, coins, wins and a network level, saved in your browser.
+
+To play with friends, choose **Pause → Open to Friends** while on the network. Friends who join appear in your lobby and play your matches on real teams; you are the party leader who starts each game. The network runs in the shared claude.ai page. The `server/server.js` server hosts regular worlds only.
+
 ## Game modes
 
 - **Survival**: health, hunger, air, fall damage. Mine with the right tool to get drops, craft, smelt, and fight mobs.
@@ -93,6 +105,8 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/redstone.js` | Redstone power simulation |
 | `js/enchant.js` | Experience orbs and levels, enchantments and the enchanting table |
 | `js/weather.js` | Rain, snow and lightning |
+| `js/arena.js` | Maps for the Nova Network lobby, Bed Wars and SkyWars |
+| `js/network.js` | Nova Network: bots, matches, shop, scoreboard, titles, tab list, ranked chat |
 | `js/mobs2.js`, `js/models2.js` | Wolves, endermen, golems, slimes, blazes, the dragon and end crystals; boats |
 | `js/items.js` | Items, tools, food, crafting recipes, smelting |
 | `js/world.js` | Chunks, terrain generation, light flood-fill, meshing, raycasting |
