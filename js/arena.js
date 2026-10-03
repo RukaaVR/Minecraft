@@ -97,8 +97,8 @@ const Arena = {
       if (d <= 3.3) { b.set(dx, Y, dz, B.WATER); b.set(dx, Y - 1, dz, B.STONE_BRICKS); }
       else if (d <= 4.4) b.set(dx, Y + 1, dz, B.STONE_SLAB);
     }
-    b.box(0, Y, 0, 0, Y + 3, 0, B.STONE_BRICKS);
-    b.set(0, Y + 4, 0, B.GLOWSTONE);
+    b.box(0, Y, 0, 0, Y + 1, 0, B.STONE_BRICKS);
+    b.set(0, Y + 2, 0, B.GLOWSTONE);
     // Trees in the gardens
     for (const [x, z] of [[17, 17], [-17, 17], [17, -17], [-17, -17]]) b.tree(x, Y + 1, z, B.BIRCH_LOG, B.BIRCH_LEAVES, 5);
     // Lamp posts
@@ -110,8 +110,9 @@ const Arena = {
     }
     // Game pedestals
     const pedestals = {
-      bedwars: { pos: [-6, Y + 1, -15], deco: B.WOOL_RED },
-      skywars: { pos: [6, Y + 1, -15], deco: B.GRASS },
+      bedwars: { pos: [-7, Y + 1, -15], deco: B.WOOL_RED },
+      duels: { pos: [0, Y + 1, -16], deco: B.IRON_BLOCK },
+      skywars: { pos: [7, Y + 1, -15], deco: B.GRASS },
     };
     for (const p of Object.values(pedestals)) {
       const [x, , z] = p.pos;
@@ -133,9 +134,19 @@ const Arena = {
     const steps = [[3, 0, 0], [3, 1, 1], [2, 1, -2], [3, 0, -1], [2, 1, 2], [3, 1, 1], [3, 0, -2], [2, 1, 0], [3, 1, 2], [3, 0, 0], [2, 1, -1], [3, 1, 0]];
     for (const [dx, dy, dz] of steps) { px += dx; py += dy; pz += dz; parkour.push([px, py, pz]); }
     parkour.forEach(([x, y, z], i) => b.set(x, y, z, i === 0 ? B.DIAMOND_BLOCK : i === parkour.length - 1 ? B.GOLD_BLOCK : (i % 2 ? B.WOOL_BLUE : B.WOOL_WHITE)));
+    // Launch pads that fling you across the hub
+    const pads = [];
+    for (const [x, z, dx, dz] of [[-17, 2, 1, -0.15], [17, 2, -1, -0.15], [-2, 19, 0, -1], [2, 19, 0, -1]]) {
+      b.set(x, Y, z, B.EMERALD_BLOCK);
+      b.set(x, Y + 1, z, B.PLATE);
+      pads.push({ pos: [x, Y + 1, z], dir: [dx, dz] });
+    }
+    // Leaderboard stands
+    const boards = [{ pos: [-17.5, Y + 1, -6.5], game: 'bedwars' }, { pos: [17.5, Y + 1, -6.5], game: 'skywars' }];
+    for (const bd of boards) b.box(Math.floor(bd.pos[0]) - 1, Y, Math.floor(bd.pos[2]) - 1, Math.floor(bd.pos[0]) + 1, Y, Math.floor(bd.pos[2]) + 1, B.GOLD_BLOCK);
     return b.finish({
       spawn: [0.5, Y + 1, 8.5], spawnYaw: 0, voidY: Y - 12,
-      pedestals, parkour,
+      pedestals, parkour, pads, boards,
     });
   },
 
@@ -164,7 +175,7 @@ const Arena = {
       const [gx, gz] = at(5, 0);
       b.set(gx, Y, gz, B.IRON_BLOCK);
       for (const v of [-1, 1]) { const [ox, oz] = at(5, v); b.set(ox, Y + 1, oz, B.STONE_SLAB); }
-      const [sx, sz] = at(3, -4), [spx, spz] = at(3, 0), [ux2, uz2] = at(3, 4);
+      const [sx, sz] = at(3, -4), [spx, spz] = at(3, 0), [upx, upz] = at(3, 4), [ux2, uz2] = at(0, -4);
       b.set(ux2, Y + 1, uz2, B.CHEST);
       b.data(ux2, Y + 1, uz2, { type: 'chest', slots: new Array(27).fill(0) });
       teams.push({
@@ -172,6 +183,7 @@ const Arena = {
         bed: [[fx, Y + 1, fz], [hx, Y + 1, hz]],
         gen: [gx + 0.5, Y + 1.2, gz + 0.5],
         shop: [sx + 0.5, Y + 1, sz + 0.5],
+        upgrades: [upx + 0.5, Y + 1, upz + 0.5],
         center: [cx, Y, cz],
       });
     });
@@ -197,6 +209,26 @@ const Arena = {
         ...diamonds.map((p) => ({ pos: p, item: ITEM.DIAMOND, every: 30, max: 4 })),
         ...emeralds.map((p) => ({ pos: p, item: ITEM.EMERALD, every: 55, max: 2 })),
       ],
+    });
+  },
+
+  // ---------------------------------------------------------------- Duels (1v1)
+  build_duels(seed) {
+    const b = arenaBuilder(), rnd = mulberry32(seed ^ 0xd0e1);
+    const Y = 64, L = 16, W = 10;
+    for (let x = -L; x <= L; x++) for (let z = -W; z <= W; z++) {
+      const edge = Math.abs(x) === L || Math.abs(z) === W;
+      const checker = (Math.floor(x / 4) + Math.floor(z / 4)) % 2 === 0;
+      b.set(x, Y, z, edge ? B.STONE_BRICKS : checker ? B.SANDSTONE : B.STONE_BRICKS);
+      for (let k = 1; k <= 3 + Math.floor(rnd() * 3); k++) b.set(x, Y - k, z, B.STONE);
+      if (edge) { b.set(x, Y + 1, z, B.STONE_BRICKS); b.box(x, Y + 2, z, x, Y + 4, z, B.GLASS); }
+    }
+    // Pillars for cover and lights
+    for (const [x, z] of [[-6, -4], [6, 4], [-6, 4], [6, -4]]) { b.box(x, Y + 1, z, x, Y + 3, z, B.STONE_BRICKS); b.set(x, Y + 4, z, B.GLOWSTONE); }
+    for (const [x, z] of [[-L, 0], [L, 0]]) b.set(x, Y + 5, z, B.GLOWSTONE);
+    return b.finish({
+      spawns: [{ spawn: [-12.5, Y + 1, 0.5], yaw: -Math.PI / 2 }, { spawn: [13.5, Y + 1, 0.5], yaw: Math.PI / 2 }],
+      voidY: Y - 22, center: [0.5, Y + 6, 0.5],
     });
   },
 
@@ -252,6 +284,6 @@ const Arena = {
       return [x, Y + 1, z];
     });
     b.set(0, Y + 4, 0, B.ENCHANTING_TABLE);
-    return b.finish({ islands, cages, mid, voidY: Y - 22, center: [0.5, Y + 6, 0.5] });
+    return b.finish({ islands, cages, mid, voidY: Y - 22, center: [0.5, Y + 6, 0.5], lootIsland: ISLAND_LOOT, lootMid: MID_LOOT });
   },
 };

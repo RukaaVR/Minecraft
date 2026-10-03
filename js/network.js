@@ -15,7 +15,9 @@ const NOVA_RANKS = {
 const NOVA_GAMES = {
   bedwars: { title: 'BED WARS', color: '#FF5555', icon: B.BED_FOOT, desc: '4 teams of 2. Protect your bed, destroy the others.', mode: '4v4v4v4 Doubles' },
   skywars: { title: 'SKYWARS', color: '#55FFFF', icon: ITEM.BOW, desc: '8 players on floating islands. Loot, bridge and be the last one standing.', mode: 'Solo Normal' },
+  duels: { title: 'DUELS', color: '#FFAA00', icon: toolId(2, 3), desc: '1v1 Classic. Iron sword, bow and iron armor. First to fall loses.', mode: 'Classic 1v1' },
 };
+const SLOTS = { bedwars: 8, skywars: 8, duels: 2 };
 const BOT_A = ['Shadow', 'Pixel', 'Crafty', 'Diamond', 'Ender', 'Blaze', 'Frosty', 'Turbo', 'Lucky', 'Cyber', 'Swift', 'Ninja', 'Dino', 'Cookie', 'Waffle', 'Rusty', 'Echo', 'Storm', 'Mango', 'Sneaky', 'Sir', 'Captain', 'Toast', 'Nether', 'Obsidian', 'Lava', 'Creeper', 'Ghost'];
 const BOT_B = ['Miner', 'Wolf', 'Gamer', 'Knight', 'Builder', 'Hunter', 'Pvp', 'Bridger', 'Clutch', 'Fox', 'Tiger', 'Panda', 'Slayer', 'Archer', 'Bean', 'Noodle', 'Potato', 'Yeti', 'Taco', 'Pickle', 'Golem', 'Blocks', 'Cactus'];
 const LOBBY_LINES = ['anyone wanna bedwars?', 'gg', 'how do i get mvp+', 'parkour is so hard', 'hi', 'who wants to party', 'skywars is better than bedwars', 'lag?', 'just got 10 finals in one game', 'what is this server called again', 'lol', 'that parkour took me 20 tries', 'bedwars or skywars?', 'good morning', 'whos online', 'i love this lobby', 'can someone teach me speedbridging', 'brb', 'nice', 'fountain looks cool'];
@@ -150,6 +152,7 @@ MOB_INIT.bot = function (extra) {
   if (info.sword >= 0) { this._setWeapon(toolId(info.sword, 3)); this.swordTier = info.sword; }
   if (info.npc === 'bedwars') this._setWeapon(B.WOOL_RED);
   if (info.npc === 'skywars') this._setWeapon(ITEM.BOW);
+  if (info.npc === 'duels') this._setWeapon(toolId(2, 3));
   // Floating name: team letter or rank, coloured like the chat
   let segs;
   if (info.npc === 'shop') segs = [['ITEM SHOP', '#FFFF55']];
@@ -226,6 +229,7 @@ Object.assign(Mob.prototype, {
             this.placeT = 0.22;
             this.blocks--;
             this.swing = 1;
+            if (this.holding !== 'block') { this.holding = 'block'; this._setWeapon(nw.kind === 'bedwars' ? NOVA_TEAMS[this.team].wool : B.COBBLE); }
             g.changeBlock(ax, fy, az, nw.kind === 'bedwars' ? NOVA_TEAMS[this.team].wool : B.COBBLE, { noUpdate: true, batch: true });
           }
           if (!isSolid(w.getBlock(ax, fy, az))) sp = 0.4;
@@ -246,17 +250,35 @@ Object.assign(Mob.prototype, {
   },
 
   _botFight(dt, e) {
-    const g = this.game;
+    const g = this.game, nw = g.nw;
+    if (this.holding === 'block') { this.holding = 'sword'; this._setWeapon(toolId(Math.max(0, this.swordTier || 0), 3)); }
     const dx = e.pos.x - this.pos.x, dz = e.pos.z - this.pos.z, dy = e.pos.y - this.pos.y;
     const d = Math.hypot(dx, dz) || 0.01;
     this.lookPitch = Math.atan2(dy, d) * 0.5;
-    if (d < 3.1 && Math.abs(dy) < 2.5 && this.attackCooldown === 0) {
-      this.attackCooldown = 0.45 + Math.random() * 0.25;
+    // circle-strafe in close combat
+    if (d < 4.5 && Math.random() < dt * 1.6) { this.sideT = 0.35 + Math.random() * 0.4; this.side = Math.random() < 0.5 ? -1 : 1; }
+    // Bow at range
+    if (this.hasBow && d > 7 && d < 24 && this.attackCooldown === 0 && (this.arrows ?? 8) > 0 && Math.random() < dt * 2 && this.canSee(e.pos)) {
+      this.attackCooldown = 1.3 + Math.random();
       this.swing = 1;
-      if (Math.random() < 0.8) {
+      if (this.arrows !== undefined) this.arrows--;
+      const from = new THREE.Vector3(this.pos.x, this.pos.y + 1.5, this.pos.z);
+      const lead = e.target && e.target.vel ? e.target.vel.clone().multiplyScalar(d / 40) : new THREE.Vector3();
+      const to = new THREE.Vector3(e.pos.x + lead.x, e.pos.y + 1.1 + d * 0.045, e.pos.z + lead.z);
+      const v = to.sub(from).normalize().multiplyScalar(40);
+      v.x += (Math.random() - 0.5) * 2.4 / (this.difficulty || 1); v.y += (Math.random() - 0.5) * 1.4; v.z += (Math.random() - 0.5) * 2.4 / (this.difficulty || 1);
+      g.spawnProjectile('arrow', from.addScaledVector(v.clone().normalize(), 0.8), v, { owner: this, damage: 4 + Math.floor(Math.random() * 3) });
+      Sound.noise(1500, 2, 0.15, 0.25);
+      return;
+    }
+    if (d < 3.1 && Math.abs(dy) < 2.5 && this.attackCooldown === 0) {
+      this.attackCooldown = (0.42 + Math.random() * 0.25) / (this.difficulty || 1);
+      this.swing = 1;
+      if (Math.random() < 0.72 + 0.12 * (this.difficulty || 1)) {
         const base = [4, 5, 6, 4, 7][Math.max(0, this.swordTier || 0)] || 4;
         const crit = !this.onGround && this.vel.y < 0 ? 1.5 : 1;
-        const dmg = Math.round(base * crit * (0.8 + Math.random() * 0.25));
+        const sharp = nw && nw.kind === 'bedwars' && this.team >= 0 && this.team < 4 && nw.up[this.team][0] ? 1.25 : 0;
+        const dmg = Math.round((base + sharp) * crit * (0.8 + Math.random() * 0.25));
         if (e.human) {
           g.curAttacker = this.name;
           g.damagePlayer(e.target, dmg, { x: dx / d * 6, y: 5, z: dz / d * 6 }, 'player');
@@ -289,7 +311,7 @@ Object.assign(Mob.prototype, {
       this.bot.sword = tier;
       this.botInfo = encodeBot(this.bot);
     }
-    if (nw.kind === 'bedwars') this.armor = nw.elapsed > 200 ? 0.4 : nw.elapsed > 60 ? 0.25 : 0.1;
+    if (nw.kind === 'bedwars') this.armor = (nw.elapsed > 200 ? 0.4 : nw.elapsed > 60 ? 0.25 : 0.1) + 0.06 * (nw.up[this.team] ? nw.up[this.team][1] : 0);
   },
 });
 
@@ -306,13 +328,13 @@ Object.assign(MOB_AI, {
       return;
     }
     if (nw.kind === 'lobby') {
-      // Wander the hub, hop around, chat now and then
+      // Wander the hub, hop around, sometimes race to the parkour
       if (!this.goal || this.pos.distanceTo(this.goal) < 1.5 || Math.random() < dt * 0.05) {
         const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 15;
         this.goal = Math.random() < 0.25 ? null : new THREE.Vector3(Math.cos(a) * r, 65, Math.sin(a) * r);
-        this.idleT = 1 + Math.random() * 4;
+        this.sprint = Math.random() < 0.3;
       }
-      if (!this.goal) { this.idleT -= dt; this._locomote(dt, 0, 0, 0); return; }
+      if (!this.goal) { this._locomote(dt, 0, 0, 0); return; }
       if (Math.random() < dt * 0.15 && this.onGround) this.vel.y = 8.6;
       this._botMove(dt, this.goal, 3.2 + (this.sprint ? 1.4 : 0), 0.5);
       return;
@@ -326,10 +348,18 @@ Object.assign(MOB_AI, {
       const d = e.pos.distanceTo(this.pos);
       if (d < nd) { nd = d; near = e; }
     }
+    // Revenge: whoever hit us last is the target if close
+    if (this.revenge && this.revenge instanceof Mob && !this.revenge.dead && this.revenge.pos.distanceTo(this.pos) < 12) {
+      near = { pos: this.revenge.pos, target: this.revenge, name: this.revenge.name, human: false }; nd = this.revenge.pos.distanceTo(this.pos);
+    }
     const spec = nw.spec;
+    // Sudden death: everyone loses health over time
+    if (nw.sudden) { this.suddenT = (this.suddenT || 0) + dt; if (this.suddenT > 2) { this.suddenT = 0; this.health -= 1; this.hurtTime = 0.3; if (this.health <= 0) this.deathTime = 0; } }
     if (nw.kind === 'bedwars') {
       const home = spec.teams[this.team];
       const atHome = Math.hypot(this.pos.x - home.center[0], this.pos.z - home.center[2]) < 8;
+      // Heal pool
+      if (atHome && nw.up[this.team][3]) { this.healT = (this.healT || 0) + dt; if (this.healT > 2) { this.healT = 0; this.health = Math.min(20, this.health + 1); } }
       // Shopping: blocks and gear come from standing at the generator and shop
       if (atHome && this.blocks < 16) {
         this.shopT += dt;
@@ -343,7 +373,7 @@ Object.assign(MOB_AI, {
         this._botFight(dt, near);
         return;
       }
-      if (this.role === 'defender' && nw.elapsed < 240) {
+      if (this.role === 'defender' && nw.elapsed < 240 && nw.beds[this.team]) {
         const bed = home.bed[0];
         if (!this.goal || Math.random() < dt * 0.3) this.goal = new THREE.Vector3(bed[0] + 0.5 + (Math.random() - 0.5) * 6, 65, bed[2] + 0.5 + (Math.random() - 0.5) * 6);
         this._botMove(dt, this.goal, 3, 1);
@@ -360,9 +390,13 @@ Object.assign(MOB_AI, {
         const [bx, by, bz] = target.bed[1];
         const goal = new THREE.Vector3(bx + 0.5, by, bz + 0.5);
         const d = Math.hypot(goal.x - this.pos.x, goal.z - this.pos.z);
-        if (d < 2.6) {
+        if (d < 2.8) {
           this.bedT += dt; this.swing = 1; this.targetYaw = Math.atan2(-(goal.x - this.pos.x), -(goal.z - this.pos.z));
-          if (this.bedT > 1.4) { this.bedT = 0; g.nwBreakBed(target.team, this.name); }
+          // Dig through the defense first, a block at a time
+          const def = g.nwDefenseLeft(target.team);
+          if (def) {
+            if (this.bedT > 0.9) { this.bedT = 0; g.particles.burst(def[0], def[1], def[2], g.world.getBlock(...def), 6); Sound.block('cloth', 0.4); g.changeBlock(def[0], def[1], def[2], B.AIR, { noUpdate: true }); }
+          } else if (this.bedT > 1.4) { this.bedT = 0; g.nwBreakBed(target.team, this.name); }
           this._locomote(dt, 0, 0, 0);
         } else { this.bedT = 0; this._botMove(dt, goal, 5.2, 1.5); }
         return;
@@ -371,9 +405,9 @@ Object.assign(MOB_AI, {
       this._locomote(dt, 0, 0, 0);
       return;
     }
-    // SkyWars: loot your island, maybe head to mid, then hunt
+    // SkyWars and Duels: loot your island, maybe head to mid, then hunt
     if (!this.plan) this.plan = { step: 'loot', t: 2 + Math.random() * 3 };
-    if (near && nd < 7) { this._botMove(dt, near.pos, 5.6, 2.2); this._botFight(dt, near); return; }
+    if (near && nd < (nw.kind === 'duels' ? 40 : 7)) { this._botMove(dt, near.pos, nd > 8 ? 5.6 : 4.8, 2.2); this._botFight(dt, near); return; }
     if (this.plan.step === 'loot') {
       this.plan.t -= dt;
       const isl = spec.islands[this.slot] || spec.islands[0];
@@ -390,7 +424,7 @@ Object.assign(MOB_AI, {
       const goal = new THREE.Vector3(0.5, 65, 0.5);
       if (this.pos.distanceTo(goal) < 4) {
         this.plan.t += dt;
-        if (this.plan.t > 3) { this.armor = Math.min(0.55, this.armor + 0.2); if (this.swordTier < 4 && Math.random() < 0.5) { this.swordTier = 4; this._setWeapon(toolId(4, 3)); this.bot.sword = 4; this.botInfo = encodeBot(this.bot); } this.plan.step = 'hunt'; }
+        if (this.plan.t > 3) { this.armor = Math.min(0.55, this.armor + 0.2); this.hasBow = this.hasBow || Math.random() < 0.5; if (this.swordTier < 4 && Math.random() < 0.5) { this.swordTier = 4; this._setWeapon(toolId(4, 3)); this.bot.sword = 4; this.botInfo = encodeBot(this.bot); } this.plan.step = 'hunt'; }
         this._locomote(dt, 0, 0, 0);
       } else this._botMove(dt, goal, 5.2, 1);
       return;
@@ -412,6 +446,7 @@ class NovaState {
     this.elapsed = 0;
     this.members = [];
     this.beds = [true, true, true, true];
+    this.up = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]; // sharpness, protection, forge, heal pool
     this.winner = '';
     this.winnerTeam = -1;
     this.spec = null;
@@ -445,7 +480,7 @@ class NovaState {
   toWire() {
     return {
       k: this.kind, id: this.id, s: this.seed, ph: this.phase, pt: Math.ceil(this.phaseT), e: Math.floor(this.elapsed),
-      bd: this.beds.map((b) => (b ? 1 : 0)).join(''), w: this.winner, wt: this.winnerTeam,
+      bd: this.beds.map((b) => (b ? 1 : 0)).join(''), w: this.winner, wt: this.winnerTeam, up: this.up.map((u) => u.join('')).join(','),
       mb: this.members.map((m) => [m.name, m.rank, m.team, this.memberAlive(m) ? 1 : 0, m.kills, m.finals, m.bot ? 1 : 0, m.beds]),
     };
   }
@@ -509,6 +544,10 @@ Object.assign(Game.prototype, {
     nw.phaseT = kind === 'skywars' ? 7 : 5;
     nw.elapsed = 0;
     nw.beds = [true, true, true, true];
+    nw.up = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+    nw.defended = [false, false, false, false];
+    nw.teamOut = [false, false, false, false];
+    nw.refilled = false; nw.sudden = false;
     nw.winner = ''; nw.winnerTeam = -1;
     nw.genT = (nw.spec.gens || []).map((gn) => gn.every * Math.random());
     nw.respawnQueue = [];
@@ -548,7 +587,7 @@ Object.assign(Game.prototype, {
     const nw = this.nw, spec = nw.spec;
     if (nw.kind === 'lobby') {
       for (const [k, p] of Object.entries(spec.pedestals)) {
-        const m = this.spawnMob('bot', p.pos[0] + 0.5, p.pos[1], p.pos[2] + 0.5, { bot: { name: NOVA_GAMES[k].title, npc: k, skin: k === 'bedwars' ? 3 : 5 } });
+        const m = this.spawnMob('bot', p.pos[0] + 0.5, p.pos[1], p.pos[2] + 0.5, { bot: { name: NOVA_GAMES[k].title, npc: k, skin: { bedwars: 3, skywars: 5, duels: 11 }[k] || 0 } });
         m.home = [p.pos[0] + 0.5, p.pos[1], p.pos[2] + 0.5];
         m.yaw = m.targetYaw = Math.PI;
       }
@@ -577,13 +616,19 @@ Object.assign(Game.prototype, {
       return { pos: [t.spawn[0] + side[0] * off, t.spawn[1], t.spawn[2] + side[1] * off], yaw: t.yaw };
     }
     if (nw.kind === 'skywars') { const s = spec.islands[slot]; return { pos: s.spawn.slice(), yaw: s.yaw }; }
+    if (nw.kind === 'duels') { const s = spec.spawns[slot % 2]; return { pos: s.spawn.slice(), yaw: s.yaw }; }
     return { pos: spec.spawn.slice(), yaw: Math.PI };
   },
 
   nwSpawnBotMember(mem) {
     const sp = this.nwSpawnPoint(mem.team, mem.slot);
-    const m = this.spawnMob('bot', sp.pos[0], sp.pos[1], sp.pos[2], { bot: { name: mem.name, rank: mem.rank, team: this.nw.kind === 'bedwars' ? mem.team : -2, skin: mem.skin, sword: this.nw.kind === 'bedwars' ? 0 : -1 } });
-    if (this.nw.kind === 'skywars') { m.team = mem.team; m.bot.team = -2; }
+    const kind = this.nw.kind;
+    const m = this.spawnMob('bot', sp.pos[0], sp.pos[1], sp.pos[2], { bot: { name: mem.name, rank: mem.rank, team: kind === 'bedwars' ? mem.team : -2, skin: mem.skin, sword: kind === 'bedwars' ? 0 : kind === 'duels' ? 2 : -1 } });
+    if (kind !== 'bedwars') { m.team = mem.team; m.bot.team = -2; }
+    if (kind === 'duels') { m.armor = 0.42; m.hasBow = true; m.arrows = 16; m.plan = { step: 'hunt', t: 0 }; }
+    else if (kind === 'skywars') m.hasBow = Math.random() < 0.45;
+    else m.hasBow = false;
+    m.difficulty = 0.7 + Math.random() * 0.5;
     m.yaw = m.targetYaw = sp.yaw;
     m.slot = mem.slot;
     m.member = mem;
@@ -621,10 +666,10 @@ Object.assign(Game.prototype, {
     const nw = this.nw;
     const humans = [{ name: this.settings.name, peer: null, rank: this.nwRank() }];
     for (const rp of this.remotePlayers.values()) humans.push({ name: rp.name, peer: rp.peer, rank: (rp.pres && NOVA_RANKS[rp.pres.rk]) ? rp.pres.rk : '' });
-    const slots = 8;
+    const slots = SLOTS[kind];
     const members = [];
     const taken = new Set(humans.map((h) => h.name));
-    const order = kind === 'bedwars' ? [0, 2, 4, 6, 1, 3, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
+    const order = kind === 'bedwars' ? [0, 2, 4, 6, 1, 3, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7].slice(0, slots);
     for (let i = 0; i < slots; i++) {
       const slot = order[i];
       const team = kind === 'bedwars' ? Math.floor(slot / 2) : slot;
@@ -674,6 +719,14 @@ Object.assign(Game.prototype, {
     p.noDamage = true;
     inv.clear(); p.armor.clear();
     if (nw.kind === 'bedwars') inv.slots[0] = stackOf(toolId(0, 3), 1);
+    if (nw.kind === 'duels') {
+      inv.slots[0] = stackOf(toolId(2, 3), 1);
+      inv.slots[1] = stackOf(ITEM.BOW, 1);
+      inv.slots[2] = stackOf(ITEM.BEEF_COOKED, 6);
+      inv.slots[8] = stackOf(ITEM.ARROW, 16);
+      for (let i = 0; i < 4; i++) p.armor.slots[i] = stackOf(armorId(1, i), 1);
+      p.armor.changed();
+    }
     inv.changed();
     const sp = this.nwSpawnPoint(me.team, me.slot);
     p.pos.set(sp.pos[0], sp.pos[1], sp.pos[2]);
@@ -681,7 +734,8 @@ Object.assign(Game.prototype, {
     nw.setupFor = nw.id;
     if (this.ui) this.ui.selectSlot(0);
     const gm = NOVA_GAMES[nw.kind];
-    this.nwTitle(gm.title, nw.kind === 'bedwars' ? `You are on ${NOVA_TEAMS[me.team].name} Team` : 'Loot your chests and be the last one standing', gm.color);
+    const opp = nw.kind === 'duels' ? nw.members.find((m) => m !== me) : null;
+    this.nwTitle(gm.title, nw.kind === 'bedwars' ? `You are on ${NOVA_TEAMS[me.team].name} Team` : nw.kind === 'duels' ? `Opponent: ${opp ? opp.name : '?'}` : 'Loot your chests and be the last one standing', gm.color);
     NovaProfile.get().played++; NovaProfile.save();
   },
 
@@ -700,6 +754,7 @@ Object.assign(Game.prototype, {
       if (nw.phase === 'playing' && prev) {
         p.noDamage = false;
         if (nw.kind === 'bedwars') this.nwTitle('', 'Protect your bed and destroy the enemy beds!', '#FFFF55');
+        else if (nw.kind === 'duels') this.nwTitle('FIGHT!', '', '#FF5555', 1.5);
         else this.nwTitle('', 'The cages opened! FIGHT!', '#FF5555');
         Sound.tone(440, 0.4, 0.25, 'square', 440);
       }
@@ -709,6 +764,7 @@ Object.assign(Game.prototype, {
       const pt = Math.ceil(nw.phaseT);
       if (pt !== nw.lastPt && pt <= 5 && pt > 0) {
         nw.lastPt = pt;
+        this.chat.rich([['The game starts in ', '#FFFF55'], [String(pt), pt <= 3 ? '#FF5555' : '#FFAA00'], [` second${pt === 1 ? '' : 's'}!`, '#FFFF55']]);
         this.nwTitle(String(pt), '', pt <= 3 ? '#FF5555' : '#FFFF55', 0.9);
         Sound.tone(500 + (5 - pt) * 60, 0.15, 0.2, 'triangle', 0);
       }
@@ -729,7 +785,7 @@ Object.assign(Game.prototype, {
         const b = bots[Math.floor(Math.random() * bots.length)];
         const lines = nw.kind === 'lobby' ? LOBBY_LINES : GAME_LINES;
         const text = lines[Math.floor(Math.random() * lines.length)];
-        const name = nw.kind === 'lobby' ? rankedName(b.name, b.bot.rank) : (b.team >= 0 && b.team < 4 ? [['[' + NOVA_TEAMS[b.team].name.toUpperCase() + '] ', NOVA_TEAMS[b.team].color], ...rankedName(b.name, b.bot.rank)] : rankedName(b.name, b.bot.rank));
+        const name = nw.kind === 'lobby' ? rankedName(b.name, b.bot.rank) : (b.team >= 0 && b.team < 4 && nw.kind === 'bedwars' ? [['[' + NOVA_TEAMS[b.team].name.toUpperCase() + '] ', NOVA_TEAMS[b.team].color], ...rankedName(b.name, b.bot.rank)] : rankedName(b.name, b.bot.rank));
         this.nwFeed([...name, [': ' + text, b.bot.rank ? '#FFFFFF' : '#AAAAAA']]);
       }
     }
@@ -876,7 +932,7 @@ Object.assign(Game.prototype, {
     const nw = this.nw, p = this.player;
     if (nw.setupFor !== nw.id) { if (nw.me) this.nwSetupLocal(); else if (p.mode !== 'spectator') { p.setMode('spectator'); const c = nw.spec.center; p.pos.set(c[0], c[1] + 8, c[2]); } return; }
     // Generators drop resources locally for everyone
-    if (nw.phase === 'playing' && nw.spec.gens) {
+    if (nw.phase === 'playing' && nw.spec.gens && !nw.genExternal) {
       nw.spec.gens.forEach((gn, i) => {
         nw.genT[i] -= dt;
         if (nw.genT[i] > 0) return;
@@ -1016,10 +1072,11 @@ Object.assign(Game.prototype, {
   nwShowEnd() {
     const nw = this.nw;
     const won = nw.kind === 'bedwars' ? nw.winnerTeam >= 0 && nw.winnerTeam === nw.myTeam : nw.winner === this.settings.name;
+    if (!won && nw.kind !== 'lobby') { const prof = NovaProfile.get(); prof.losses = (prof.losses || 0) + 1; NovaProfile.save(); }
     if (won) {
       const prof = NovaProfile.get();
       prof.wins[nw.kind] = (prof.wins[nw.kind] || 0) + 1; prof.coins += 100; NovaProfile.save();
-      this.nwTitle('VICTORY!', nw.kind === 'bedwars' ? `${NOVA_TEAMS[nw.winnerTeam].name} Team wins!` : 'You were the last one standing!', '#FFAA00', 5);
+      this.nwTitle('VICTORY!', nw.kind === 'bedwars' ? `${NOVA_TEAMS[nw.winnerTeam].name} Team wins!` : nw.kind === 'duels' ? 'You won the duel!' : 'You were the last one standing!', '#FFAA00', 5);
       this.chat.rich([['+100 coins! ', '#FFAA00'], ['(Win)', '#AAAAAA']]);
       [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => Sound.tone(f, 0.25, 0.2, 'triangle', 0), i * 140));
     } else {
@@ -1121,6 +1178,22 @@ Object.assign(Game.prototype, {
       add(['Kills: ', '#FFFFFF'], [String(me.kills), '#55FF55']);
       add(['Final Kills: ', '#FFFFFF'], [String(me.finals), '#55FF55']);
       add(['Beds Broken: ', '#FFFFFF'], [String(me.beds || 0), '#55FF55']);
+    } else if (nw.kind === 'duels') {
+      title = 'DUELS';
+      add([date + '  m' + nw.id + 'D', '#555555']);
+      add(['', '']);
+      add(['Time: ', '#FFFFFF'], [nw.phase === 'starting' ? 'Starting in ' + Math.ceil(nw.phaseT) + 's' : fmtTime(nw.elapsed), '#55FF55']);
+      add(['', '']);
+      const opp = nw.members.find((m) => m.name !== this.settings.name);
+      add(['Opponent: ', '#FFFFFF'], [opp ? opp.name : '?', '#FF5555']);
+      const om = opp && [...this.mobs.values()].find((m) => m.type === 'bot' && m.name === opp.name && !m.dead);
+      const orp = opp && [...this.remotePlayers.values()].find((r) => r.name === opp.name);
+      const ohp = om ? Math.ceil(om.health) : orp && orp.pres && typeof orp.pres.hp === 'number' ? orp.pres.hp : null;
+      if (ohp !== null) add(['Their health: ', '#FFFFFF'], [ohp + ' ❤', '#FF5555']);
+      add(['Your health: ', '#FFFFFF'], [Math.ceil(this.player.health) + ' ❤', '#FF5555']);
+      add(['', '']);
+      add(['Mode: ', '#FFFFFF'], ['Classic 1v1', '#55FF55']);
+      add(['Duels Wins: ', '#FFFFFF'], [String(prof.wins.duels || 0), '#55FF55']);
     } else {
       title = 'SKYWARS';
       add([date + '  m' + nw.id + 'B', '#555555']);
@@ -1179,7 +1252,7 @@ for (const name of ['startPanorama', 'startWorld', 'startRemoteWorld']) {
     if (this.nw) {
       for (const h of this.nw.holos) this.scene.remove(h);
       this.nw = null;
-      for (const id of ['nova-board', 'nova-title', 'nova-tab']) { const e = document.getElementById(id); if (e) e.hidden = true; }
+      for (const id of ['nova-board', 'nova-title', 'nova-tab', 'nova-bar', 'nova-spec']) { const e = document.getElementById(id); if (e) e.hidden = true; }
     }
     if (this.player) this.player.noDamage = false;
     return orig.apply(this, a);
@@ -1295,12 +1368,13 @@ Object.assign(Game.prototype, {
     if (!nw || !mg || typeof mg.id !== 'number') return;
     if (mg.id !== nw.id) {
       nw.members = [];
-      this.nwLoadArena(String(mg.k) === 'bedwars' || String(mg.k) === 'skywars' ? String(mg.k) : 'lobby', mg.id, mg.s | 0);
+      this.nwLoadArena(NOVA_GAMES[String(mg.k)] ? String(mg.k) : 'lobby', mg.id, mg.s | 0);
     }
     nw.phase = ['lobby', 'starting', 'playing', 'ended'].includes(mg.ph) ? mg.ph : nw.phase;
     nw.phaseT = +mg.pt || 0;
     nw.elapsed = +mg.e || 0;
     if (typeof mg.bd === 'string') nw.beds = [...mg.bd].map((c) => c === '1');
+    if (typeof mg.up === 'string') { const u = mg.up.split(','); if (u.length === 4) nw.up = u.map((t) => [0, 1, 2, 3].map((i) => Math.min(4, parseInt(t[i], 10) || 0))); }
     nw.winner = String(mg.w || '').slice(0, 24);
     nw.winnerTeam = mg.wt | 0;
     if (Array.isArray(mg.mb)) {
@@ -1357,6 +1431,8 @@ wrapGame('runCommand', function (orig, text) {
 const _playerDamage = Player.prototype.damage;
 Player.prototype.damage = function (amount, cause, knock) {
   if (this.noDamage) return false;
+  const g = window.webcraft && window.webcraft.game;
+  if (g && g.player === this && g.nw && g.nw.kind === 'bedwars' && g.nw.myTeam >= 0 && !['void', 'starve', 'fall'].includes(cause)) amount *= 1 - 0.08 * g.nw.up[g.nw.myTeam][1];
   return _playerDamage.call(this, amount, cause, knock);
 };
 
@@ -1420,4 +1496,633 @@ document.addEventListener('keyup', (e) => {
   if (e.code !== 'Tab') return;
   const tab = document.getElementById('nova-tab');
   if (tab) tab.hidden = true;
+});
+
+// ================================================================ more network detail
+const UPGRADES = [
+  { key: 'sharp', name: 'Sharpened Swords', desc: 'Your team permanently gains Sharpness I on all swords.', costs: [4], icon: toolId(2, 3) },
+  { key: 'prot', name: 'Reinforced Armor', desc: 'Your team permanently gains Protection on all armor.', costs: [2, 4, 8, 16], icon: armorId(1, 1) },
+  { key: 'forge', name: 'Iron Forge', desc: 'Upgrade resource spawning on your island.', costs: [2, 4], icon: B.FURNACE },
+  { key: 'heal', name: 'Heal Pool', desc: 'Creates a regeneration field around your base.', costs: [1], icon: B.GLOWSTONE },
+];
+const ROMAN_N = ['', 'I', 'II', 'III', 'IV'];
+const SHOP = {
+  Blocks: [
+    { item: 'wool', n: 16, cost: [ITEM.IRON_INGOT, 4] }, { item: B.END_STONE, n: 12, cost: [ITEM.IRON_INGOT, 24] },
+    { item: B.PLANKS, n: 16, cost: [ITEM.GOLD_INGOT, 4] }, { item: B.GLASS, n: 4, cost: [ITEM.IRON_INGOT, 12] },
+    { item: B.LADDER, n: 8, cost: [ITEM.IRON_INGOT, 4] }, { item: B.OBSIDIAN, n: 4, cost: [ITEM.EMERALD, 4] },
+  ],
+  Melee: [
+    { item: toolId(1, 3), n: 1, cost: [ITEM.IRON_INGOT, 10], sword: 1 }, { item: toolId(2, 3), n: 1, cost: [ITEM.GOLD_INGOT, 7], sword: 2 },
+    { item: toolId(4, 3), n: 1, cost: [ITEM.EMERALD, 4], sword: 4 },
+  ],
+  Armor: [
+    { item: 'chain', n: 1, cost: [ITEM.IRON_INGOT, 24], armor: 0, label: 'Permanent Leather Boots & Leggings' },
+    { item: 'iron', n: 1, cost: [ITEM.GOLD_INGOT, 12], armor: 1, label: 'Permanent Iron Armor' },
+    { item: 'diamond', n: 1, cost: [ITEM.EMERALD, 6], armor: 3, label: 'Permanent Diamond Armor' },
+  ],
+  Tools: [
+    { item: toolId(1, 0), n: 1, cost: [ITEM.IRON_INGOT, 10] }, { item: toolId(2, 0), n: 1, cost: [ITEM.GOLD_INGOT, 3] },
+    { item: toolId(1, 1), n: 1, cost: [ITEM.IRON_INGOT, 10] }, { item: ITEM.SHEARS, n: 1, cost: [ITEM.IRON_INGOT, 20] },
+  ],
+  Ranged: [
+    { item: ITEM.ARROW, n: 8, cost: [ITEM.GOLD_INGOT, 2] }, { item: ITEM.BOW, n: 1, cost: [ITEM.GOLD_INGOT, 12] },
+  ],
+  Utility: [
+    { item: B.TNT, n: 1, cost: [ITEM.GOLD_INGOT, 4] }, { item: ITEM.ENDER_PEARL, n: 1, cost: [ITEM.EMERALD, 4] },
+    { item: ITEM.WATER_BUCKET, n: 1, cost: [ITEM.GOLD_INGOT, 3] }, { item: ITEM.BEEF_COOKED, n: 2, cost: [ITEM.IRON_INGOT, 4] },
+    { item: ITEM.APPLE, n: 1, cost: [ITEM.GOLD_INGOT, 3] },
+  ],
+};
+const TIPS = ['Press Space in mid-air to double jump', 'Hold Tab to see who is online', 'Right-click the Game Menu book to pick a game', 'Launch pads fling you across the lobby', 'Beat the parkour for coins', 'Bots fill every empty slot', 'Team upgrades cost diamonds in Bed Wars', 'Open to Friends from the pause menu to party up', 'Use /play duels for a quick 1v1'];
+const RES_NAMES = { [ITEM.IRON_INGOT]: 'Iron', [ITEM.GOLD_INGOT]: 'Gold', [ITEM.EMERALD]: 'Emerald', [ITEM.DIAMOND]: 'Diamond' };
+const RES_COLORS = { [ITEM.IRON_INGOT]: '#FFFFFF', [ITEM.GOLD_INGOT]: '#FFAA00', [ITEM.EMERALD]: '#55FF55', [ITEM.DIAMOND]: '#55FFFF' };
+
+Object.assign(Game.prototype, {
+  // ---------------------------------------------------------------- bed defense
+  // Blocks around a bed (two layers), outer first
+  nwBedShell(team) {
+    const nw = this.nw;
+    if (!nw.shells) nw.shells = [];
+    if (nw.shells[team]) return nw.shells[team];
+    const bed = nw.spec.teams[team].bed;
+    const isBed = (x, y, z) => bed.some((b) => b[0] === x && b[1] === y && b[2] === z);
+    const inner = [], outer = [], seen = new Set();
+    const around = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
+    for (const [bx, by, bz] of bed) for (const [dx, dy, dz] of around) {
+      const q = [bx + dx, by + dy, bz + dz], k = q.join(',');
+      if (!isBed(...q) && !seen.has(k)) { seen.add(k); inner.push(q); }
+    }
+    for (const [x, y, z] of inner) for (const [dx, dy, dz] of around) {
+      const q = [x + dx, y + dy, z + dz], k = q.join(',');
+      if (!isBed(...q) && !seen.has(k)) { seen.add(k); outer.push(q); }
+    }
+    nw.shells[team] = { inner, outer };
+    return nw.shells[team];
+  },
+  nwDefenseLeft(team) {
+    const sh = this.nwBedShell(team);
+    for (const q of [...sh.outer, ...sh.inner]) if (BW_BREAKABLE.has(this.world.getBlock(...q))) return q;
+    return null;
+  },
+  // Host: bot-only teams cover their bed in wool, then end stone
+  nwBuildDefense(team) {
+    const sh = this.nwBedShell(team);
+    for (const [q, id] of [...sh.outer.map((q) => [q, B.END_STONE]), ...sh.inner.map((q) => [q, NOVA_TEAMS[team].wool])]) {
+      if (this.world.getBlock(...q) === B.AIR) this.changeBlock(q[0], q[1], q[2], id, { noUpdate: true, batch: true });
+    }
+    this.flushBlocks();
+  },
+
+  // ---------------------------------------------------------------- upgrades
+  nwBuyUpgrade(idx) {
+    const nw = this.nw, p = this.player, up = UPGRADES[idx];
+    const lvl = nw.up[nw.myTeam][idx];
+    if (lvl >= up.costs.length) { this.chat.rich([['You already have the maximum level!', '#FF5555']]); Sound.click(); return; }
+    const cost = up.costs[lvl];
+    const have = p.inventory.count(ITEM.DIAMOND);
+    if (have < cost) { this.chat.rich([[`You don't have enough Diamond! Need ${cost - have} more!`, '#FF5555']]); Sound.tone(200, 0.15, 0.2, 'square', 0); return; }
+    this.nwTake(ITEM.DIAMOND, cost);
+    if (this.isAuthority) nw.up[nw.myTeam][idx]++;
+    const tm = NOVA_TEAMS[nw.myTeam];
+    this.nwFeed([[this.settings.name, tm.color], [' purchased ', '#55FF55'], [up.name + (up.costs.length > 1 ? ' ' + ROMAN_N[lvl + 1] : ''), '#FFAA00']], this.isAuthority ? null : { upg: { t: nw.myTeam, i: idx } });
+    Sound.tone(900, 0.12, 0.2, 'triangle', 300);
+    if (this.ui.gui && this.ui.gui.kind === 'novaup') this.ui.buildGui();
+  },
+  nwTake(id, n) {
+    const inv = this.player.inventory;
+    for (let i = 0; i < inv.slots.length && n > 0; i++) {
+      const s = inv.slots[i];
+      if (s && s.id === id) { const k = Math.min(n, s.count); s.count -= k; n -= k; if (s.count <= 0) inv.slots[i] = null; }
+    }
+    inv.changed();
+  },
+  // Bonus melee damage for the local player (Sharpened Swords)
+  dmgBonus() {
+    const nw = this.nw;
+    if (!nw || nw.kind !== 'bedwars' || nw.myTeam < 0) return 0;
+    const held = this.player.heldStack;
+    return nw.up[nw.myTeam][0] && held && ITEMS[held.id].tool && ITEMS[held.id].tool.type === 'sword' ? 1.25 : 0;
+  },
+
+  // ---------------------------------------------------------------- shop
+  nwBuy(entry) {
+    const nw = this.nw, p = this.player, inv = p.inventory;
+    const [cid, cn] = entry.cost;
+    const have = inv.count(cid);
+    if (have < cn) { this.chat.rich([[`You don't have enough ${RES_NAMES[cid]}! Need ${cn - have} more!`, '#FF5555']]); Sound.tone(200, 0.15, 0.2, 'square', 0); return false; }
+    let name;
+    if (entry.armor !== undefined) {
+      const tier = entry.armor;
+      const cur = p.armorTier || 0;
+      if (tier < cur || (tier === 0 && cur >= 0 && p.armor.slots[3])) { this.chat.rich([['You already have better armor!', '#FF5555']]); return false; }
+      this.nwTake(cid, cn);
+      p.armorTier = Math.max(cur, tier);
+      p.armor.slots[3] = stackOf(armorId(tier, 3), 1);
+      p.armor.slots[2] = stackOf(armorId(tier, 2), 1);
+      if (tier > 0) { p.armor.slots[1] = stackOf(armorId(tier, 1), 1); p.armor.slots[0] = stackOf(armorId(tier, 0), 1); }
+      p.armor.changed();
+      name = entry.label;
+    } else {
+      const id = entry.item === 'wool' ? NOVA_TEAMS[Math.max(0, nw.myTeam)].wool : entry.item;
+      if (!inv.canFit(stackOf(id, entry.n))) { this.chat.rich([['Your inventory is full!', '#FF5555']]); return false; }
+      this.nwTake(cid, cn);
+      if (entry.sword) {
+        // swords replace the wooden one
+        const ws = inv.slots.findIndex((s) => s && s.id === toolId(0, 3));
+        if (ws >= 0) { inv.slots[ws] = stackOf(id, 1); inv.changed(); } else inv.add(stackOf(id, 1), PICKUP_ORDER);
+      } else inv.add(stackOf(id, entry.n), PICKUP_ORDER);
+      name = ITEMS[id].name;
+    }
+    this.chat.rich([['You purchased ', '#55FF55'], [name, '#FFAA00']]);
+    Sound.tone(1000, 0.08, 0.2, 'triangle', 200);
+    return true;
+  },
+
+  // ---------------------------------------------------------------- holograms over generators
+  nwGenHolos(dt) {
+    const nw = this.nw;
+    if (nw.kind !== 'bedwars') return;
+    nw.genHoloT = (nw.genHoloT || 0) - dt;
+    if (nw.genHoloT > 0) return;
+    nw.genHoloT = 1;
+    if (!nw.genHolos) nw.genHolos = [];
+    const gens = nw.spec.gens;
+    let hi = 0;
+    gens.forEach((gn, i) => {
+      if (gn.item !== ITEM.DIAMOND && gn.item !== ITEM.EMERALD) return;
+      const dia = gn.item === ITEM.DIAMOND;
+      const tier = dia ? (nw.elapsed > 360 ? 3 : nw.elapsed > 180 ? 2 : 1) : (nw.elapsed > 480 ? 2 : 1);
+      const left = nw.phase === 'playing' ? Math.max(0, Math.ceil(nw.genT[i])) : Math.ceil(gn.every);
+      const key = tier + '|' + left;
+      let h = nw.genHolos[hi];
+      if (!h || h.userData.key !== key) {
+        if (h) { this.scene.remove(h); h.material.map.dispose(); h.material.dispose(); }
+        h = novaTag([
+          { segs: [['Tier ', '#FFFF55'], [ROMAN_N[tier], '#FF5555']], size: 22 },
+          { segs: [[dia ? 'Diamond' : 'Emerald', dia ? '#55FFFF' : '#55FF55']], bold: true, size: 30 },
+          { segs: [['Spawns in ', '#FFFF55'], [String(left), '#FF5555'], [' seconds', '#FFFF55']], size: 22 },
+        ], 0.3);
+        h.userData.key = key;
+        h.position.set(gn.pos[0], gn.pos[1] + 2.2, gn.pos[2]);
+        this.scene.add(h);
+        nw.genHolos[hi] = h; nw.holos.push(h);
+      }
+      hi++;
+    });
+  },
+  // Generator speed for the local copy
+  nwGenEvery(gn) {
+    const nw = this.nw;
+    let every = gn.every;
+    if (gn.item === ITEM.DIAMOND) every *= nw.elapsed > 360 ? 0.5 : nw.elapsed > 180 ? 0.7 : 1;
+    if (gn.item === ITEM.EMERALD) every *= nw.elapsed > 480 ? 0.6 : 1;
+    if ((gn.item === ITEM.IRON_INGOT || gn.item === ITEM.GOLD_INGOT) && nw.spec.teams) {
+      const t = nw.spec.teams.findIndex((tm) => tm.gen === gn.pos);
+      if (t >= 0) every /= 1 + 0.5 * nw.up[t][2];
+    }
+    return every;
+  },
+
+  // ---------------------------------------------------------------- SkyWars refills
+  nwRefill() {
+    const nw = this.nw, w = this.world, spec = nw.spec;
+    const rnd = mulberry32((Math.random() * 1e9) | 0);
+    const fill = (pos, table, rolls) => {
+      if (w.getBlock(...pos) !== B.CHEST) return;
+      const d = { type: 'chest', slots: Structures._loot(rnd, table, rolls) };
+      w.setData(pos[0], pos[1], pos[2], d);
+      this.net.send('bdata', { x: pos[0], y: pos[1], z: pos[2], d, w: 0 });
+    };
+    for (const isl of spec.islands) for (const c of isl.chests) fill(c, spec.lootIsland, 5);
+    for (const c of spec.mid) fill(c, spec.lootMid, 6);
+  },
+
+  // ---------------------------------------------------------------- name tags with health
+  nwTagFor(mob) {
+    const nw = this.nw;
+    const hp = Math.max(0, Math.ceil(mob.health));
+    const info = mob.bot;
+    if (!info || mob.npc || !nw || nw.kind === 'lobby') return;
+    if (mob.tagHp === hp) return;
+    mob.tagHp = hp;
+    const team = mob.team >= 0 && mob.team < 4 && nw.kind === 'bedwars' ? NOVA_TEAMS[mob.team] : null;
+    const name = team ? [[team.letter + ' ', team.color], [info.name, team.color]] : [[info.name, '#FF5555']];
+    if (mob.tag) { mob.model.root.remove(mob.tag); mob.tag.material.map.dispose(); mob.tag.material.dispose(); }
+    mob.tag = novaTag([{ segs: name }, { segs: [[String(hp), '#FFFFFF'], [' ❤', '#FF5555']], size: 22 }], 0.26);
+    mob.tag.position.y = 2.05;
+    mob.model.root.add(mob.tag);
+  },
+  // Team-coloured tags for real players
+  nwRemoteTags() {
+    const nw = this.nw;
+    for (const rp of this.remotePlayers.values()) {
+      const t = nw.kind === 'bedwars' ? nw.teamOfName(rp.name) : undefined;
+      const rk = rp.pres && rp.pres.rk;
+      const segs = t !== undefined && t >= 0 ? [[NOVA_TEAMS[t].letter + ' ', NOVA_TEAMS[t].color], [rp.name, NOVA_TEAMS[t].color]] : nw.kind === 'lobby' ? rankedName(rp.name, rk) : [[rp.name, '#FF5555']];
+      const hp = rp.pres && typeof rp.pres.hp === 'number' && nw.kind !== 'lobby' ? rp.pres.hp : null;
+      const key = segsText(segs) + '|' + segs.map((x) => x[1]).join() + '|' + hp;
+      if (rp.tagKey === key) continue;
+      rp.tagKey = key;
+      rp.model.root.remove(rp.tag);
+      const lines = [{ segs }];
+      if (hp !== null) lines.push({ segs: [[String(hp), '#FFFFFF'], [' ❤', '#FF5555']], size: 22 });
+      rp.tag = novaTag(lines, 0.26);
+      rp.tag.position.y = 2.05;
+      rp.model.root.add(rp.tag);
+    }
+  },
+
+  // ---------------------------------------------------------------- lobby extras
+  nwLobbyExtras(dt) {
+    const nw = this.nw, p = this.player, spec = nw.spec;
+    // Launch pads
+    for (const pad of spec.pads || []) {
+      if (Math.floor(p.pos.x) === pad.pos[0] && Math.floor(p.pos.z) === pad.pos[2] && Math.abs(p.pos.y - pad.pos[1]) < 0.6 && !(nw.padT > 0)) {
+        nw.padT = 1;
+        const [dx, dz] = pad.dir, l = Math.hypot(dx, dz);
+        p.vel.set(dx / l * 13, 17, dz / l * 13);
+        p.onGround = false;
+        nw.fling = { x: dx / l * 13, z: dz / l * 13, t: 0 };
+        Sound.tone(300, 0.4, 0.25, 'sine', 600);
+        this.particles.smoke(p.pos.x, p.pos.y, p.pos.z, 8);
+      }
+    }
+    nw.padT = (nw.padT || 0) - dt;
+    // Double jump in the lobby
+    const space = p.keys.has('Space');
+    if (p.onGround) nw.djUsed = false;
+    else if (space && !nw.spaceWas && !nw.djUsed && !nw.fling) {
+      nw.djUsed = true;
+      const d = p.lookDir();
+      p.vel.y = 10; p.vel.x += d.x * 5; p.vel.z += d.z * 5;
+      Sound.tone(500, 0.2, 0.15, 'sine', 400);
+      this.particles.smoke(p.pos.x, p.pos.y, p.pos.z, 5);
+    }
+    nw.spaceWas = space;
+    if (nw.fling) {
+      nw.fling.t += dt;
+      if ((p.onGround && nw.fling.t > 0.2) || nw.fling.t > 3) nw.fling = null;
+      else { p.vel.x = nw.fling.x; p.vel.z = nw.fling.z; }
+    }
+    // Lobby banner tips
+    nw.tipT = (nw.tipT || 0) - dt;
+    if (nw.tipT <= 0) {
+      nw.tipT = 7;
+      nw.tipI = ((nw.tipI ?? -1) + 1) % TIPS.length;
+      const bar = document.getElementById('nova-bar');
+      if (bar) { bar.innerHTML = `<b style="color:#FFAA00">${NOVA_NAME}</b> <span style="color:#AAAAAA">·</span> <span style="color:#FFFF55">${escapeHtml(TIPS[nw.tipI])}</span>`; bar.hidden = false; }
+    }
+    // Bots come and go (host)
+    if (this.isAuthority) {
+      nw.joinT = (nw.joinT ?? 20) - dt;
+      if (nw.joinT <= 0) {
+        nw.joinT = 15 + Math.random() * 25;
+        const bots = [...this.mobs.values()].filter((m) => m.type === 'bot' && !m.npc);
+        if (bots.length > 9 && Math.random() < 0.5) {
+          const b = bots[Math.floor(Math.random() * bots.length)];
+          this.particles.smoke(b.pos.x, b.pos.y + 1, b.pos.z, 6);
+          b.dispose(); this.mobs.delete(b.id);
+        } else if (bots.length < 16) {
+          const taken = new Set(bots.map((m) => m.name)); taken.add(this.settings.name);
+          const rank = Math.random() < 0.35 ? 'MVP+' : this.nwBotRank();
+          const name = this.nwBotName(taken);
+          const sp = spec.spawn;
+          this.spawnMob('bot', sp[0] + (Math.random() - 0.5) * 4, sp[1], sp[2] + (Math.random() - 0.5) * 4, { bot: { name, rank, team: -1, skin: Math.floor(Math.random() * 40) } });
+          if (rank === 'MVP+' || rank === 'MVP') this.nwFeed([['>', '#55FFFF'], ['>', '#FF5555'], ['> ', '#55FF55'], ...rankedName(name, rank), [' joined the lobby! ', '#FFAA00'], ['<', '#55FF55'], ['<', '#FF5555'], ['<', '#55FFFF']]);
+        }
+      }
+    }
+  },
+
+  nwLeaderboards() {
+    const nw = this.nw, spec = nw.spec;
+    const prof = NovaProfile.get();
+    const r = mulberry32(4242);
+    for (const bd of spec.boards || []) {
+      const names = [];
+      const taken = new Set();
+      for (let i = 0; i < 9; i++) { let n; do { n = BOT_A[Math.floor(r() * BOT_A.length)] + (r() < 0.5 ? '_' : '') + BOT_B[Math.floor(r() * BOT_B.length)]; } while (taken.has(n)); taken.add(n); names.push(n); }
+      let score = bd.game === 'bedwars' ? 4800 : 3100;
+      const rows = names.map((n, i) => { score -= Math.floor(120 + r() * 400); return { n, s: score, rk: ['MVP+', 'MVP+', 'MVP', 'MVP+', 'VIP+', 'MVP', 'VIP', 'VIP+', ''][i] }; });
+      const mine = prof.wins[bd.game] || 0;
+      const lines = [
+        { segs: [[bd.game === 'bedwars' ? 'Bed Wars' : 'SkyWars', '#FFAA00'], [' Wins Leaderboard', '#FFFF55']], bold: true, size: 26 },
+        { segs: [['All-Time', '#AAAAAA']], size: 20 },
+        ...rows.map((row, i) => ({ segs: [[`${i + 1}. `, '#FFFF55'], ...rankedName(row.n, row.rk), [' - ', '#AAAAAA'], [row.s.toLocaleString(), '#FFFF55']], size: 20 })),
+        { segs: [['', '#FFFFFF']], size: 8 },
+        { segs: [['You: ', '#AAAAAA'], ...rankedName(this.settings.name, this.nwRank()), [' - ', '#AAAAAA'], [String(mine), '#FFFF55']], size: 20 },
+      ];
+      const h = novaTag(lines, 0.3);
+      h.position.set(bd.pos[0], bd.pos[1] + 0.9, bd.pos[2]);
+      this.scene.add(h);
+      nw.holos.push(h);
+    }
+  },
+});
+
+// Hook the extras into the per-frame code
+{
+  const P = Game.prototype;
+  const hostTick = P.nwHostTick;
+  P.nwHostTick = function (dt) {
+    hostTick.call(this, dt);
+    const nw = this.nw;
+    if (!nw || nw.phase !== 'playing') return;
+    if (nw.kind === 'bedwars') {
+      // Bot-only teams build a bed defense; bot teams buy upgrades over time
+      nw.spec.teams.forEach((t, i) => {
+        const allBots = nw.members.filter((m) => m.team === i).every((m) => m.bot);
+        if (!allBots || !nw.beds[i]) return;
+        if (!nw.defended[i] && nw.elapsed > 14 + i * 3) { nw.defended[i] = true; this.nwBuildDefense(i); }
+        const want = [nw.elapsed > 70 ? 1 : 0, (nw.elapsed > 130 ? 1 : 0) + (nw.elapsed > 260 ? 1 : 0), nw.elapsed > 100 ? 1 : 0, nw.elapsed > 160 ? 1 : 0];
+        for (let k = 0; k < 4; k++) if (nw.up[i][k] < want[k]) nw.up[i][k] = want[k];
+      });
+      // Teams that are completely gone
+      for (let t = 0; t < 4; t++) {
+        if (nw.teamOut[t] || nw.beds[t]) continue;
+        const pending = nw.respawnQueue.some((r) => r.mem.team === t);
+        if (!pending && !nw.teamAlive(t)) {
+          nw.teamOut[t] = true;
+          this.nwFeed([['TEAM ELIMINATED > ', '#FFFFFF'], [NOVA_TEAMS[t].name + ' Team', NOVA_TEAMS[t].color], [' has been eliminated!', '#FF5555']]);
+        }
+      }
+    }
+    if (nw.kind === 'skywars') {
+      if (!nw.refilled && nw.elapsed > 180) { nw.refilled = true; this.nwRefill(); this.nwFeed([['All chests have been refilled!', '#FFFF55']], { ev: 'refill' }); }
+      if (!nw.sudden && nw.elapsed > 420) { nw.sudden = true; this.nwFeed([['SUDDEN DEATH! ', '#FF5555'], ['Everyone is losing health. Finish it!', '#FFAA00']], { ev: 'sudden' }); }
+    }
+    if (nw.kind === 'duels' && !nw.sudden && nw.elapsed > 240) { nw.sudden = true; this.nwFeed([['SUDDEN DEATH! ', '#FF5555'], ['Both players are losing health.', '#FFAA00']], { ev: 'sudden' }); }
+  };
+
+  const gameLocal = P.nwGameLocal;
+  P.nwGameLocal = function (dt) {
+    gameLocal.call(this, dt);
+    const nw = this.nw, p = this.player;
+    if (!nw || nw.setupFor !== nw.id) return;
+    this.nwGenHolos(dt);
+    // Heal pool on your island
+    if (nw.kind === 'bedwars' && nw.myTeam >= 0 && nw.up[nw.myTeam][3] && p.mode === 'survival') {
+      const c = nw.spec.teams[nw.myTeam].center;
+      if (Math.hypot(p.pos.x - c[0], p.pos.z - c[2]) < 9) { nw.healT = (nw.healT || 0) + dt; if (nw.healT > 2) { nw.healT = 0; p.heal(1); } }
+    }
+    // Sudden death drains everyone still playing
+    if (nw.sudden && p.mode === 'survival' && nw.phase === 'playing') {
+      nw.suddenT = (nw.suddenT || 0) + dt;
+      if (nw.suddenT > 2) { nw.suddenT = 0; p.damage(1, 'starve'); }
+    }
+    // Spectator controls after you are out
+    const spec = document.getElementById('nova-spec');
+    if (spec) spec.hidden = !(nw.eliminated || nw.phase === 'ended');
+    // Health tags
+    for (const m of this.mobs.values()) if (m.type === 'bot') this.nwTagFor(m);
+  };
+
+  const lobbyLocal = P.nwLobbyLocal;
+  P.nwLobbyLocal = function (dt) {
+    lobbyLocal.call(this, dt);
+    this.nwLobbyExtras(dt);
+    const spec = document.getElementById('nova-spec');
+    if (spec) spec.hidden = true;
+  };
+
+  const update = P.nwUpdate;
+  P.nwUpdate = function (dt) {
+    update.call(this, dt);
+    const nw = this.nw;
+    if (!nw) return;
+    nw.tagT = (nw.tagT || 0) - dt;
+    if (nw.tagT <= 0) { nw.tagT = 0.5; this.nwRemoteTags(); }
+    const bar = document.getElementById('nova-bar');
+    if (bar && nw.kind !== 'lobby') bar.hidden = true;
+  };
+
+  const load = P.nwLoadArena;
+  P.nwLoadArena = function (kind, id, seed) {
+    if (this.nw) { this.nw.genHolos = []; this.nw.shells = []; this.nw.genExternal = false; }
+    load.call(this, kind, id, seed);
+    if (kind === 'lobby') this.nwLeaderboards();
+    if (this.isAuthority && kind === 'bedwars') {
+      this.nw.spec.teams.forEach((t) => {
+        const m = this.spawnMob('bot', t.upgrades[0], t.upgrades[1], t.upgrades[2], { bot: { name: 'Team Upgrades', npc: 'upgrades' } });
+        m.home = t.upgrades.slice();
+      });
+    }
+    this.player.armorTier = 0;
+  };
+
+  // Generators use the upgraded speeds
+  const genOrig = P.nwGameLocal;
+  void genOrig;
+
+  const applyMeta = P.nwApplyMeta;
+  P.nwApplyMeta = function (d) {
+    applyMeta.call(this, d);
+    const nw = this.nw;
+    if (!nw) return;
+    if (d.upg && this.isAuthority) { const t = d.upg.t | 0, i = d.upg.i | 0; if (nw.up[t] && i >= 0 && i < 4 && nw.up[t][i] < UPGRADES[i].costs.length) nw.up[t][i]++; }
+    if (d.ev === 'refill') this.nwTitle('', 'Chests refilled!', '#FFFF55', 2);
+    if (d.ev === 'sudden') { nw.sudden = true; this.nwTitle('SUDDEN DEATH', '', '#FF5555', 2); Sound.tone(80, 1.2, 0.35, 'sawtooth', -20); }
+  };
+
+  const extra = P.presenceExtra;
+  P.presenceExtra = function (pres) {
+    extra.call(this, pres);
+    if (this.nw) pres.hp = Math.ceil(this.player.health);
+  };
+
+  // NPC clicks for the upgrade shop
+  const click = P.nwClickNpc;
+  P.nwClickNpc = function (m) {
+    if (m.npc === 'upgrades') { if (this.nw.phase === 'playing' && this.player.mode === 'survival') this.ui.openGui('novaup'); return; }
+    if (m.npc === 'shop') { if (this.nw.phase === 'playing' && this.player.mode === 'survival') this.ui.openGui('novashop', { cat: 'Blocks' }); return; }
+    click.call(this, m);
+  };
+}
+
+// Names and titles for the extra NPCs
+{
+  const init = MOB_INIT.bot;
+  MOB_INIT.bot = function (extra) {
+    init.call(this, extra);
+    if (this.npc === 'upgrades') {
+      this.model.root.remove(this.tag);
+      this.model.mat.dispose();
+      this.model = buildModel('villager_librarian');
+      this.tag = novaTag([{ segs: [['TEAM', '#55FFFF']], bold: true }, { segs: [['UPGRADES', '#55FFFF']], bold: true }], 0.24);
+      this.tag.position.y = 2.15;
+      this.model.root.add(this.tag);
+    }
+  };
+  const render = MOB_RENDER.bot;
+  MOB_RENDER.bot = function (light) { if (this.npc === 'upgrades') return; render.call(this, light); };
+}
+
+// Projectiles from bots credit the bot
+{
+  const hit = Projectile.prototype.onHitEntity;
+  Projectile.prototype.onHitEntity = function (c, dir) {
+    const g = this.game;
+    if (c === 'local' && this.owner instanceof Mob && this.owner.name) g.lastHurtBy = { name: this.owner.name, t: performance.now() };
+    if (c instanceof Mob && c.type === 'bot' && this.owner instanceof Mob && this.kind === 'arrow' && g.isAuthority) {
+      if (this.owner.team === c.team) return;
+      const dmg = this.damage || 4;
+      if (c.hurt(dmg, dir.x, dir.z, this.owner) && c.dead) g.onMobKilled(c, null);
+      Sound.noise(1200, 1, 0.12, 0.3);
+      return;
+    }
+    hit.call(this, c, dir);
+  };
+}
+
+// Generator timing with upgrades: replace the spawn loop's interval
+{
+  const P = Game.prototype;
+  const local = P.nwGameLocal;
+  P.nwGameLocal = function (dt) {
+    const nw = this.nw;
+    if (nw && nw.spec && nw.spec.gens && nw.phase === 'playing') {
+      // run the generators here with upgraded speeds, then stop the base loop from doing it again
+      nw.spec.gens.forEach((gn, i) => {
+        nw.genT[i] -= dt;
+        if (nw.genT[i] > 0) return;
+        nw.genT[i] = this.nwGenEvery(gn);
+        let n = 0, pile = null;
+        for (const it of this.items) if (it.stack.id === gn.item && Math.abs(it.pos.x - gn.pos[0]) < 2 && Math.abs(it.pos.z - gn.pos[2]) < 2) { n += it.stack.count; if (!pile || it.stack.count < pile.stack.count) pile = it; }
+        if (n >= gn.max) return;
+        // stack onto the pile already sitting on the generator
+        if (pile && pile.stack.count < maxStack(gn.item) && pile.age > 0.5) { pile.stack.count++; pile.age = 0.6; }
+        else this.spawnItem(stackOf(gn.item, 1), gn.pos[0], gn.pos[1], gn.pos[2], new THREE.Vector3(0, 0, 0));
+      });
+      nw.genExternal = true;
+      local.call(this, dt);
+      return;
+    }
+    local.call(this, dt);
+  };
+}
+
+// ---------------------------------------------------------------- GUIs: item shop, upgrades, profile
+{
+  const build = UI.prototype.buildGui;
+  UI.prototype.buildGui = function () {
+    const gui = this.gui;
+    if (!gui || !['novashop', 'novaup', 'novaprofile'].includes(gui.kind)) return build.call(this);
+    const g = this.game, p = g.player;
+    const panel = document.getElementById('gui-panel');
+    panel.innerHTML = '';
+    panel.className = 'gui-panel gui-novashop';
+    gui.slots = [];
+    const resRow = () => {
+      const r = el('div', 'shop-res');
+      for (const id of [ITEM.IRON_INGOT, ITEM.GOLD_INGOT, ITEM.DIAMOND, ITEM.EMERALD]) {
+        const sp = el('span', '', `${RES_NAMES[id]}: ${p.inventory.count(id)}`);
+        sp.style.color = RES_COLORS[id];
+        r.appendChild(sp);
+      }
+      return r;
+    };
+    if (gui.kind === 'novashop') {
+      panel.appendChild(el('div', 'gui-title', 'Item Shop'));
+      const tabs = el('div', 'shop-tabs');
+      for (const cat of Object.keys(SHOP)) {
+        const t = el('button', 'shop-tab' + (cat === gui.cat ? ' on' : ''), cat);
+        t.type = 'button';
+        t.addEventListener('mousedown', (e) => { e.preventDefault(); gui.cat = cat; this.buildGui(); });
+        tabs.appendChild(t);
+      }
+      panel.appendChild(tabs);
+      const grid = el('div', 'shop-grid');
+      for (const entry of SHOP[gui.cat]) {
+        const id = entry.item === 'wool' ? NOVA_TEAMS[Math.max(0, g.nw.myTeam)].wool : entry.item === 'chain' ? armorId(0, 3) : entry.item === 'iron' ? armorId(1, 1) : entry.item === 'diamond' ? armorId(3, 1) : entry.item;
+        const btn = el('button', 'shop-item');
+        btn.type = 'button';
+        const icon = el('div', 'slot');
+        this.slotContent(icon, stackOf(id, entry.n));
+        const can = p.inventory.count(entry.cost[0]) >= entry.cost[1];
+        btn.classList.toggle('cant', !can);
+        const info = el('div', 'shop-info');
+        info.appendChild(el('div', 'shop-name', entry.label || (entry.n > 1 ? `${entry.n} × ` : '') + ITEMS[id].name));
+        const cost = el('div', 'shop-cost', `${entry.cost[1]} ${RES_NAMES[entry.cost[0]]}`);
+        cost.style.color = RES_COLORS[entry.cost[0]];
+        info.appendChild(cost);
+        btn.append(icon, info);
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); if (g.nwBuy(entry)) this.buildGui(); });
+        grid.appendChild(btn);
+      }
+      panel.appendChild(grid);
+      panel.appendChild(resRow());
+    } else if (gui.kind === 'novaup') {
+      panel.appendChild(el('div', 'gui-title', 'Team Upgrades'));
+      const grid = el('div', 'shop-grid');
+      const lv = g.nw.up[g.nw.myTeam] || [0, 0, 0, 0];
+      UPGRADES.forEach((u, i) => {
+        const btn = el('button', 'shop-item up');
+        btn.type = 'button';
+        const icon = el('div', 'slot');
+        this.slotContent(icon, stackOf(u.icon, 1));
+        const max = lv[i] >= u.costs.length;
+        const info = el('div', 'shop-info');
+        info.appendChild(el('div', 'shop-name', u.name + (u.costs.length > 1 ? ` ${ROMAN_N[Math.min(lv[i] + 1, u.costs.length)]}` : '')));
+        info.appendChild(el('div', 'shop-desc', u.desc));
+        const cost = el('div', 'shop-cost', max ? 'UNLOCKED' : `${u.costs[lv[i]]} Diamond${u.costs[lv[i]] > 1 ? 's' : ''}`);
+        cost.style.color = max ? '#55FF55' : '#55FFFF';
+        info.appendChild(cost);
+        btn.classList.toggle('cant', max || p.inventory.count(ITEM.DIAMOND) < u.costs[lv[i]]);
+        btn.append(icon, info);
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); g.nwBuyUpgrade(i); });
+        grid.appendChild(btn);
+      });
+      panel.appendChild(grid);
+      panel.appendChild(resRow());
+    } else {
+      const prof = NovaProfile.get();
+      panel.appendChild(el('div', 'gui-title', 'Your Profile'));
+      const head = el('div', 'prof-head');
+      const nm = el('div', 'prof-name');
+      for (const [t, c] of rankedName(g.settings.name, g.nwRank())) { const sp = el('span', '', t); sp.style.color = c; nm.appendChild(sp); }
+      head.append(nm, el('div', 'prof-level', `Network Level ${NovaProfile.level()}`));
+      panel.appendChild(head);
+      const stats = [
+        ['Coins', prof.coins.toLocaleString(), '#FFAA00'], ['Games played', prof.played, '#FFFFFF'],
+        ['Bed Wars wins', prof.wins.bedwars || 0, '#FF5555'], ['SkyWars wins', prof.wins.skywars || 0, '#55FFFF'], ['Duels wins', prof.wins.duels || 0, '#FFAA00'],
+        ['Kills', prof.kills, '#FFFFFF'], ['Final kills', prof.finals, '#FFFFFF'], ['Beds broken', prof.beds, '#FFFFFF'],
+        ['Win streak', prof.streak || 0, '#55FF55'], ['Parkour best', prof.parkour === null ? '-' : prof.parkour + 's', '#FFFF55'],
+      ];
+      const grid = el('div', 'prof-grid');
+      for (const [k, v, c] of stats) {
+        const cell = el('div', 'prof-cell');
+        const val = el('div', 'prof-val', String(v)); val.style.color = c;
+        cell.append(val, el('div', 'prof-key', k));
+        grid.appendChild(cell);
+      }
+      panel.appendChild(grid);
+    }
+    this.renderGui();
+  };
+}
+Game.prototype.nwShowProfile = function () { this.ui.openGui('novaprofile'); };
+
+// Win streaks
+{
+  const show = Game.prototype.nwShowEnd;
+  Game.prototype.nwShowEnd = function () {
+    const prof = NovaProfile.get();
+    const before = prof.wins[this.nw.kind] || 0;
+    show.call(this);
+    const won = (prof.wins[this.nw.kind] || 0) > before;
+    prof.streak = won ? (prof.streak || 0) + 1 : 0;
+    NovaProfile.save();
+    if (won && prof.streak > 1) this.chat.rich([['Win streak: ', '#FFAA00'], [String(prof.streak), '#55FF55']]);
+  };
+}
+
+// Spectator keys: P plays again, L returns to the lobby
+document.addEventListener('keydown', (e) => {
+  const g = window.webcraft && window.webcraft.game;
+  if (!g || !g.nw || g.mode !== 'play' || !g.ui || g.ui.screen !== 'none' || g.ui.chatOpen) return;
+  const nw = g.nw;
+  if (!(nw.eliminated || nw.phase === 'ended') || nw.kind === 'lobby') return;
+  if (e.code === 'KeyP') { if (g.isAuthority) g.nwQueue(nw.kind); else g.chat.rich([['Only the host can start a game.', '#FF5555']]); }
+  if (e.code === 'KeyL') g.runCommand('/lobby');
 });

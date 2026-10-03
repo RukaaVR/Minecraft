@@ -627,6 +627,7 @@ class Game {
     let dmg = tool && tool.type !== 'ignite' ? tool.damage : 1;
     const sharp = enchLevel(held, 'sharpness');
     if (sharp) dmg += 0.5 * sharp + 0.5;
+    if (this.dmgBonus) dmg += this.dmgBonus();
     if (p.vel.y < -0.5 && !p.onGround && !p.inWater) dmg = Math.floor(dmg * 1.5);
     const dir = p.lookDir();
     if (ent instanceof Mob) {
