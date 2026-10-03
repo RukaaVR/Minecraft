@@ -17,7 +17,8 @@ const NOVA_GAMES = {
   skywars: { title: 'SKYWARS', color: '#55FFFF', icon: ITEM.BOW, desc: '8 players on floating islands. Loot, bridge and be the last one standing.', mode: 'Solo Normal' },
   duels: { title: 'DUELS', color: '#FFAA00', icon: toolId(2, 3), desc: '1v1 Classic. Iron sword, bow and iron armor. First to fall loses.', mode: 'Classic 1v1' },
 };
-const SLOTS = { bedwars: 8, skywars: 8, duels: 2 };
+const SLOTS = { bedwars: 8, skywars: 8, duels: 2, bridge: 4, murder: 8 };
+const TEAM_GAMES = new Set(['bedwars', 'bridge']);
 const BOT_A = ['Shadow', 'Pixel', 'Crafty', 'Diamond', 'Ender', 'Blaze', 'Frosty', 'Turbo', 'Lucky', 'Cyber', 'Swift', 'Ninja', 'Dino', 'Cookie', 'Waffle', 'Rusty', 'Echo', 'Storm', 'Mango', 'Sneaky', 'Sir', 'Captain', 'Toast', 'Nether', 'Obsidian', 'Lava', 'Creeper', 'Ghost'];
 const BOT_B = ['Miner', 'Wolf', 'Gamer', 'Knight', 'Builder', 'Hunter', 'Pvp', 'Bridger', 'Clutch', 'Fox', 'Tiger', 'Panda', 'Slayer', 'Archer', 'Bean', 'Noodle', 'Potato', 'Yeti', 'Taco', 'Pickle', 'Golem', 'Blocks', 'Cactus'];
 const LOBBY_LINES = ['anyone wanna bedwars?', 'gg', 'how do i get mvp+', 'parkour is so hard', 'hi', 'who wants to party', 'skywars is better than bedwars', 'lag?', 'just got 10 finals in one game', 'what is this server called again', 'lol', 'that parkour took me 20 tries', 'bedwars or skywars?', 'good morning', 'whos online', 'i love this lobby', 'can someone teach me speedbridging', 'brb', 'nice', 'fountain looks cool'];
@@ -215,7 +216,9 @@ Object.assign(Mob.prototype, {
       this.targetYaw = Math.atan2(-dx, -dz);
       if (d > stopAt) { dirX = dx / d; dirZ = dz / d; sp = speed; }
     }
-    if (sp > 0) {
+    // heading somewhere well below: just walk off the edge instead of bridging out level
+    const dropping = goal && goal.y > 0 && goal.y < this.pos.y - 2.5;
+    if (sp > 0 && !dropping) {
       // strafe a little when stuck
       if (this.sideT > 0) { this.sideT -= dt; const sx = -dirZ * this.side, sz = dirX * this.side; dirX = dirX * 0.4 + sx; dirZ = dirZ * 0.4 + sz; }
       const fy = Math.floor(this.pos.y + 0.01) - 1;
@@ -230,15 +233,15 @@ Object.assign(Mob.prototype, {
             this.placeT = 0.22;
             this.blocks--;
             this.swing = 1;
-            if (this.holding !== 'block') { this.holding = 'block'; this._setWeapon(nw.kind === 'bedwars' ? NOVA_TEAMS[this.team].wool : B.COBBLE); }
-            g.changeBlock(ax, fy, az, nw.kind === 'bedwars' ? NOVA_TEAMS[this.team].wool : B.COBBLE, { noUpdate: true, batch: true });
+            if (this.holding !== 'block') { this.holding = 'block'; this._setWeapon(TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[this.team].wool : B.COBBLE); }
+            g.changeBlock(ax, fy, az, TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[this.team].wool : B.COBBLE, { noUpdate: true, batch: true });
           }
           if (!isSolid(w.getBlock(ax, fy, az))) sp = 0.4;
         } else sp = 0;
       }
       if (!this.onGround && this.vel.y < 0 && this.blocks > 0 && w.getBlock(cx, fy, cz) === B.AIR && this.placeT <= 0 && this.pos.y - fy < 1.4) {
         this.placeT = 0.15; this.blocks--;
-        g.changeBlock(cx, fy, cz, nw.kind === 'bedwars' ? NOVA_TEAMS[this.team].wool : B.COBBLE, { noUpdate: true, batch: true });
+        g.changeBlock(cx, fy, cz, TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[this.team].wool : B.COBBLE, { noUpdate: true, batch: true });
       }
     }
     // Stuck: hop and step sideways for a moment
@@ -330,8 +333,15 @@ Object.assign(MOB_AI, {
     }
     if (nw.kind === 'lobby') {
       // Wander the hub, hop around, sometimes race to the parkour
+      // stay out of the fountain: climb out if we fell in, and wander around it rather than through it
+      const rc = Math.hypot(this.pos.x, this.pos.z) || 0.01;
+      if (rc < 4.8) {
+        if (this.onGround || boxInBlock(g.world, this.pos, this.w, 0.6, isWater)) this.vel.y = Math.max(this.vel.y, 7.5);
+        this._botMove(dt, new THREE.Vector3(this.pos.x / rc * 8, 65, this.pos.z / rc * 8), 3.6, 0.5);
+        return;
+      }
       if (!this.goal || this.pos.distanceTo(this.goal) < 1.5 || Math.random() < dt * 0.05) {
-        const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 15;
+        const a = Math.atan2(this.pos.z, this.pos.x) + (Math.random() - 0.5) * 2.2, r = 6 + Math.random() * 13;
         this.goal = Math.random() < 0.25 ? null : new THREE.Vector3(Math.cos(a) * r, 65, Math.sin(a) * r);
         this.sprint = Math.random() < 0.3;
       }
@@ -631,8 +641,8 @@ Object.assign(Game.prototype, {
   nwSpawnBotMember(mem) {
     const sp = this.nwSpawnPoint(mem.team, mem.slot);
     const kind = this.nw.kind;
-    const m = this.spawnMob('bot', sp.pos[0], sp.pos[1], sp.pos[2], { bot: { name: mem.name, rank: mem.rank, team: kind === 'bedwars' ? mem.team : -2, skin: mem.skin, sword: kind === 'bedwars' ? 0 : kind === 'duels' ? 2 : -1 } });
-    if (kind !== 'bedwars') { m.team = mem.team; m.bot.team = -2; }
+    const m = this.spawnMob('bot', sp.pos[0], sp.pos[1], sp.pos[2], { bot: { name: mem.name, rank: mem.rank, team: TEAM_GAMES.has(kind) ? mem.team : -2, skin: mem.skin, sword: kind === 'bedwars' ? 0 : kind === 'duels' || kind === 'bridge' ? 2 : -1 } });
+    if (!TEAM_GAMES.has(kind)) { m.team = mem.team; m.bot.team = -2; }
     if (kind === 'duels') { m.armor = 0.42; m.hasBow = true; m.arrows = 16; m.plan = { step: 'hunt', t: 0 }; }
     else if (kind === 'skywars') m.hasBow = Math.random() < 0.45;
     else m.hasBow = false;
@@ -677,10 +687,10 @@ Object.assign(Game.prototype, {
     const slots = SLOTS[kind];
     const members = [];
     const taken = new Set(humans.map((h) => h.name));
-    const order = kind === 'bedwars' ? [0, 2, 4, 6, 1, 3, 5, 7] : [0, 1, 2, 3, 4, 5, 6, 7].slice(0, slots);
+    const order = kind === 'bedwars' ? [0, 2, 4, 6, 1, 3, 5, 7] : kind === 'bridge' ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6, 7].slice(0, slots);
     for (let i = 0; i < slots; i++) {
       const slot = order[i];
-      const team = kind === 'bedwars' ? Math.floor(slot / 2) : slot;
+      const team = kind === 'bedwars' ? Math.floor(slot / 2) : kind === 'bridge' ? slot % 2 : slot;
       const h = humans[i];
       const base = { slot, team, alive: true, final: false, kills: 0, finals: 0, beds: 0 };
       if (h) members.push(Object.assign(base, { name: h.name, peer: h.peer, rank: h.rank, bot: false }));
@@ -743,7 +753,7 @@ Object.assign(Game.prototype, {
     if (this.ui) this.ui.selectSlot(0);
     const gm = NOVA_GAMES[nw.kind];
     const opp = nw.kind === 'duels' ? nw.members.find((m) => m !== me) : null;
-    this.nwTitle(gm.title, nw.kind === 'bedwars' ? `You are on ${NOVA_TEAMS[me.team].name} Team` : nw.kind === 'duels' ? `Opponent: ${opp ? opp.name : '?'}` : 'Loot your chests and be the last one standing', gm.color);
+    this.nwTitle(gm.title, TEAM_GAMES.has(nw.kind) ? `You are on ${NOVA_TEAMS[me.team].name} Team` : nw.kind === 'duels' ? `Opponent: ${opp ? opp.name : '?'}` : 'Loot your chests and be the last one standing', gm.color);
     NovaProfile.get().played++; NovaProfile.save();
   },
 
@@ -791,9 +801,9 @@ Object.assign(Game.prototype, {
       const bots = [...this.mobs.values()].filter((m) => m.type === 'bot' && !m.npc && !m.dead);
       if (bots.length) {
         const b = bots[Math.floor(Math.random() * bots.length)];
-        const lines = nw.kind === 'lobby' ? LOBBY_LINES : GAME_LINES;
+        const lines = nw.kind === 'lobby' ? LOBBY_LINES : nw.kind === 'bedwars' ? GAME_LINES : GAME_LINES.filter((l) => !/bed|defend/.test(l));
         const text = lines[Math.floor(Math.random() * lines.length)];
-        const name = nw.kind === 'lobby' ? rankedName(b.name, b.bot.rank) : (b.team >= 0 && b.team < 4 && nw.kind === 'bedwars' ? [['[' + NOVA_TEAMS[b.team].name.toUpperCase() + '] ', NOVA_TEAMS[b.team].color], ...rankedName(b.name, b.bot.rank)] : rankedName(b.name, b.bot.rank));
+        const name = nw.kind === 'lobby' ? rankedName(b.name, b.bot.rank) : (b.team >= 0 && b.team < 4 && TEAM_GAMES.has(nw.kind) ? [['[' + NOVA_TEAMS[b.team].name.toUpperCase() + '] ', NOVA_TEAMS[b.team].color], ...rankedName(b.name, b.bot.rank)] : rankedName(b.name, b.bot.rank));
         this.nwFeed([...name, [': ' + text, b.bot.rank ? '#FFFFFF' : '#AAAAAA']]);
       }
     }
@@ -820,7 +830,7 @@ Object.assign(Game.prototype, {
       const r = nw.respawnQueue[i];
       if (this.simTime < r.at) continue;
       nw.respawnQueue.splice(i, 1);
-      if (nw.kind === 'bedwars' && nw.beds[r.mem.team]) { r.mem.alive = true; this.nwSpawnBotMember(r.mem); }
+      if ((nw.kind === 'bedwars' && nw.beds[r.mem.team]) || nw.kind === 'bridge') { r.mem.alive = true; this.nwSpawnBotMember(r.mem); }
       else { r.mem.alive = false; r.mem.final = true; }
     }
     // Beds broken by players
@@ -849,10 +859,10 @@ Object.assign(Game.prototype, {
     if (nw.kind === 'bedwars') {
       const alive = [0, 1, 2, 3].filter((t) => nw.teamAlive(t) || nw.respawnQueue.some((r) => r.mem.team === t && nw.beds[t]));
       if (alive.length <= 1) this.nwEnd(alive.length ? alive[0] : -1);
-    } else {
+    } else if (nw.kind === 'skywars' || nw.kind === 'duels') {
       const alive = nw.members.filter((m) => nw.memberAlive(m));
       if (alive.length <= 1) this.nwEnd(alive.length ? alive[0].team : -1, alive.length ? alive[0].name : '');
-    }
+    } else if (this.nwWinCheck) this.nwWinCheck();
   },
 
   // Host: a team's bed was destroyed
@@ -882,7 +892,7 @@ Object.assign(Game.prototype, {
     nw.phase = 'ended';
     nw.phaseT = 9;
     nw.winnerTeam = team;
-    if (nw.kind === 'bedwars') nw.winner = team >= 0 ? NOVA_TEAMS[team].name : 'Nobody';
+    if (TEAM_GAMES.has(nw.kind)) nw.winner = team >= 0 ? NOVA_TEAMS[team].name : 'Nobody';
     else nw.winner = name || 'Nobody';
     const top = nw.members.filter((m) => m.kills + m.finals > 0).sort((a, b) => (b.kills + b.finals) - (a.kills + a.finals)).slice(0, 3);
     const gm = NOVA_GAMES[nw.kind];
@@ -890,7 +900,7 @@ Object.assign(Game.prototype, {
     this.nwFeed(line);
     this.nwFeed([['                ' + gm.title, '#FFFFFF']]);
     const winners = nw.members.filter((m) => m.team === team).map((m) => m.name).join(', ');
-    this.nwFeed([['  Winner - ', '#FFAA00'], [team >= 0 && nw.kind === 'bedwars' ? NOVA_TEAMS[team].name + ' - ' + winners : nw.winner, team >= 0 && nw.kind === 'bedwars' ? NOVA_TEAMS[team].color : '#FFFF55']]);
+    this.nwFeed([['  Winner - ', '#FFAA00'], [team >= 0 && TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[team].name + ' - ' + winners : nw.winner, team >= 0 && TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[team].color : '#FFFF55']]);
     ['1st', '2nd', '3rd'].forEach((place, i) => {
       if (top[i]) this.nwFeed([[`  ${place} Killer - `, ['#FFFF55', '#FFAA00', '#FF5555'][i]], [`${top[i].name} - ${top[i].kills + top[i].finals}`, '#AAAAAA']]);
     });
@@ -956,7 +966,7 @@ Object.assign(Game.prototype, {
     // Respawn countdown
     if (nw.respawnAt) {
       const left = Math.ceil(nw.respawnAt - this.simTime);
-      if (left !== nw.lastRespawnLeft && left > 0) { nw.lastRespawnLeft = left; this.nwTitle('YOU DIED!', `You will respawn in ${left} second${left === 1 ? '' : 's'}!`, '#FF5555', 1.1); }
+      if (left !== nw.lastRespawnLeft && left > 0 && nw.kind !== 'bridge') { nw.lastRespawnLeft = left; this.nwTitle('YOU DIED!', `You will respawn in ${left} second${left === 1 ? '' : 's'}!`, '#FF5555', 1.1); }
       if (this.simTime >= nw.respawnAt) {
         nw.respawnAt = 0;
         const me = nw.me;
@@ -964,8 +974,9 @@ Object.assign(Game.prototype, {
         p.setMode('survival');
         p.pos.set(sp.pos[0], sp.pos[1], sp.pos[2]); p.vel.set(0, 0, 0); p.fallStart = null;
         p.health = 20; p.food = 20;
-        if (!p.inventory.slots.some((s) => s && ITEMS[s.id].tool && ITEMS[s.id].tool.type === 'sword')) p.inventory.add(stackOf(toolId(0, 3), 1), PICKUP_ORDER);
-        this.nwTitle('RESPAWNED!', '', '#55FF55', 1.2);
+        if (nw.kind === 'bridge' && this.nwGiveKit) this.nwGiveKit();
+        else if (!p.inventory.slots.some((s) => s && ITEMS[s.id].tool && ITEMS[s.id].tool.type === 'sword')) p.inventory.add(stackOf(toolId(0, 3), 1), PICKUP_ORDER);
+        if (nw.kind !== 'bridge') this.nwTitle('RESPAWNED!', '', '#55FF55', 1.2);
       }
     }
     if (nw.phase === 'starting' && nw.kind === 'bedwars') {
@@ -981,7 +992,7 @@ Object.assign(Game.prototype, {
     const me = nw.me;
     const myName = this.settings.name;
     const recent = this.lastHurtBy && performance.now() - this.lastHurtBy.t < 10000 ? this.lastHurtBy.name : null;
-    const final = nw.kind !== 'bedwars' || !nw.beds[nw.myTeam];
+    const final = this.nwIsFinal(nw.myTeam);
     this.nwKillFeed(myName, nw.myTeam, recent, cause === 'void', final);
     this.lastHurtBy = null;
     // Items: SkyWars drops everything; Bed Wars keeps armor and tools
@@ -989,6 +1000,8 @@ Object.assign(Game.prototype, {
     if (nw.kind === 'skywars') {
       for (const s of [...inv.slots, ...p.armor.slots]) if (s) this.spawnItem(copyStack(s), p.pos.x, Math.max(p.pos.y, nw.spec.voidY + 25), p.pos.z);
       inv.clear(); p.armor.clear();
+    } else if (nw.kind === 'bridge' || nw.kind === 'murder') {
+      inv.clear();
     } else {
       inv.slots = inv.slots.map((s) => (s && ITEMS[s.id].tool && ['pickaxe', 'axe', 'shears'].includes(ITEMS[s.id].tool.type) ? s : null));
       inv.changed();
@@ -1003,7 +1016,7 @@ Object.assign(Game.prototype, {
       if (me) me.alive = false;
       this.nwTitle('YOU DIED!', 'You are now a spectator!', '#FF5555', 3);
     } else {
-      nw.respawnAt = this.simTime + 5;
+      nw.respawnAt = this.simTime + (nw.kind === 'bridge' ? 0.4 : 5);
       nw.lastRespawnLeft = -1;
     }
   },
@@ -1011,7 +1024,7 @@ Object.assign(Game.prototype, {
   // A kill feed line plus the stats it carries
   nwKillFeed(victim, vTeam, killer, voidDeath, final) {
     const nw = this.nw;
-    const col = (name, team) => (team >= 0 && team < 4 && nw.kind === 'bedwars' ? NOVA_TEAMS[team].color : name === this.settings.name ? '#55FFFF' : '#AAAAAA');
+    const col = (name, team) => (team >= 0 && team < 4 && TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[team].color : name === this.settings.name ? '#55FFFF' : '#AAAAAA');
     const kTeam = killer ? nw.teamOfName(killer) : undefined;
     const segs = [[victim, col(victim, vTeam)]];
     if (killer) segs.push([voidDeath ? ' was knocked into the void by ' : [' was slain by ', ' was killed by ', ' got wrecked by '][Math.floor(Math.random() * 3)], '#AAAAAA'], [killer, col(killer, kTeam)], ['.', '#AAAAAA']);
@@ -1033,7 +1046,7 @@ Object.assign(Game.prototype, {
       else if (by === null) killer = this.settings.name;
       else if (typeof by === 'string' && by !== 'env') { const rp = this.remotePlayers.get(by); killer = rp ? rp.name : null; }
     }
-    const final = nw.kind !== 'bedwars' || !nw.beds[mem.team];
+    const final = this.nwIsFinal(mem.team);
     this.nwKillFeed(mem.name, mem.team, killer, mob.pos.y < nw.spec.voidY + 2, final);
     if (final) { mem.alive = false; mem.final = true; }
     else nw.respawnQueue.push({ at: this.simTime + 5, mem });
@@ -1080,12 +1093,12 @@ Object.assign(Game.prototype, {
 
   nwShowEnd() {
     const nw = this.nw;
-    const won = nw.kind === 'bedwars' ? nw.winnerTeam >= 0 && nw.winnerTeam === nw.myTeam : nw.winner === this.settings.name;
+    const won = TEAM_GAMES.has(nw.kind) ? nw.winnerTeam >= 0 && nw.winnerTeam === nw.myTeam : nw.winner === this.settings.name;
     if (!won && nw.kind !== 'lobby') { const prof = NovaProfile.get(); prof.losses = (prof.losses || 0) + 1; NovaProfile.save(); }
     if (won) {
       const prof = NovaProfile.get();
       prof.wins[nw.kind] = (prof.wins[nw.kind] || 0) + 1; prof.coins += 100; NovaProfile.save();
-      this.nwTitle('VICTORY!', nw.kind === 'bedwars' ? `${NOVA_TEAMS[nw.winnerTeam].name} Team wins!` : nw.kind === 'duels' ? 'You won the duel!' : 'You were the last one standing!', '#FFAA00', 5);
+      this.nwTitle('VICTORY!', TEAM_GAMES.has(nw.kind) ? `${NOVA_TEAMS[nw.winnerTeam].name} Team wins!` : nw.kind === 'duels' ? 'You won the duel!' : 'You were the last one standing!', '#FFAA00', 5);
       this.chat.rich([['+100 coins! ', '#FFAA00'], ['(Win)', '#AAAAAA']]);
       [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => Sound.tone(f, 0.25, 0.2, 'triangle', 0), i * 140));
     } else {
@@ -1237,9 +1250,9 @@ Object.assign(Game.prototype, {
       for (const m of this.mobs.values()) if (m.type === 'bot' && !m.npc) push(rankedName(m.name, m.bot.rank), 3 + (m.id % 3));
     } else {
       for (const m of nw.members) {
-        const col = nw.kind === 'bedwars' ? NOVA_TEAMS[m.team].color : '#FFFFFF';
+        const col = TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[m.team].color : '#FFFFFF';
         const alive = nw.memberAlive(m);
-        const pre = nw.kind === 'bedwars' ? [[NOVA_TEAMS[m.team].letter + ' ', col]] : [];
+        const pre = TEAM_GAMES.has(nw.kind) ? [[NOVA_TEAMS[m.team].letter + ' ', col]] : [];
         push([...pre, [m.name, alive ? col : '#555555'], [m.bot ? '' : '', '#AAAAAA']], m.bot ? 3 + (m.name.length % 3) : 5);
       }
     }
@@ -1458,7 +1471,7 @@ Chat.prototype.send = function (text) {
   this.history.push(text);
   if (this.history.length > 50) this.history.shift();
   const rk = g.nwRank();
-  const pre = g.nw.kind === 'bedwars' && g.nw.myTeam >= 0 ? [['[' + NOVA_TEAMS[g.nw.myTeam].name.toUpperCase() + '] ', NOVA_TEAMS[g.nw.myTeam].color]] : [];
+  const pre = g.TEAM_GAMES.has(nw.kind) && g.nw.myTeam >= 0 ? [['[' + NOVA_TEAMS[g.nw.myTeam].name.toUpperCase() + '] ', NOVA_TEAMS[g.nw.myTeam].color]] : [];
   this.rich([...pre, ...rankedName(g.settings.name, rk), [': ' + text, rk ? '#FFFFFF' : '#AAAAAA']]);
   if (g.net.active) g.net.send('chat', { n: g.settings.name, t: text.slice(0, 256), rk });
 };
@@ -1715,7 +1728,7 @@ Object.assign(Game.prototype, {
     if (!info || mob.npc || !nw || nw.kind === 'lobby') return;
     if (mob.tagHp === hp) return;
     mob.tagHp = hp;
-    const team = mob.team >= 0 && mob.team < 4 && nw.kind === 'bedwars' ? NOVA_TEAMS[mob.team] : null;
+    const team = mob.team >= 0 && mob.team < 4 && TEAM_GAMES.has(nw.kind) ? NOVA_TEAMS[mob.team] : null;
     const name = team ? [[team.letter + ' ', team.color], [info.name, team.color]] : [[info.name, '#FF5555']];
     if (mob.tag) { mob.model.root.remove(mob.tag); mob.tag.material.map.dispose(); mob.tag.material.dispose(); }
     mob.tag = novaTag([{ segs: name }, { segs: [[String(hp), '#FFFFFF'], [' ❤', '#FF5555']], size: 22 }], 0.26);
@@ -1726,7 +1739,7 @@ Object.assign(Game.prototype, {
   nwRemoteTags() {
     const nw = this.nw;
     for (const rp of this.remotePlayers.values()) {
-      const t = nw.kind === 'bedwars' ? nw.teamOfName(rp.name) : undefined;
+      const t = TEAM_GAMES.has(nw.kind) ? nw.teamOfName(rp.name) : undefined;
       const rk = rp.pres && rp.pres.rk;
       const segs = t !== undefined && t >= 0 ? [[NOVA_TEAMS[t].letter + ' ', NOVA_TEAMS[t].color], [rp.name, NOVA_TEAMS[t].color]] : nw.kind === 'lobby' ? rankedName(rp.name, rk) : [[rp.name, '#FF5555']];
       const hp = rp.pres && typeof rp.pres.hp === 'number' && nw.kind !== 'lobby' ? rp.pres.hp : null;

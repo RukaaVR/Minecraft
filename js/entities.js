@@ -629,15 +629,20 @@ class Particles {
   }
   burst(x, y, z, id, n = 14) {
     if (!BLOCKS[id] && !ITEMS[id]) return;
+    // One lit material per burst, so particles are as dark as the place they fly in
+    const mat = this.game.entityMat.clone();
+    const shared = { mat, refs: n, pos: new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5) };
+    const l = this.game.lightAt(x + 0.5, y + 0.6, z + 0.5);
+    mat.color.setRGB(l, l, l);
     for (let i = 0; i < n; i++) {
       const geo = id < 256 && BLOCKS[id].model === 'cube'
         ? blockGeometry(id, 0.12, [Math.random() * 0.75, Math.random() * 0.75, 0.25])
         : itemGeometry(id, 0.12);
-      const m = new THREE.Mesh(geo, this.game.entityMat);
+      const m = new THREE.Mesh(geo, mat);
       m.position.set(x + 0.2 + Math.random() * 0.6, y + 0.2 + Math.random() * 0.6, z + 0.2 + Math.random() * 0.6);
       this.game.scene.add(m);
       this.list.push({
-        mesh: m, life: 0.5 + Math.random() * 0.5,
+        mesh: m, life: 0.5 + Math.random() * 0.5, shared,
         vel: new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 4 + 1, (Math.random() - 0.5) * 4),
       });
     }
@@ -653,6 +658,12 @@ class Particles {
   }
   update(dt) {
     const world = this.game.world;
+    // Smoke takes the light around the camera; bursts re-light themselves as they fall
+    if (this.list.length) {
+      const c = this.game.camera.position;
+      const l = Math.max(0.25, this.game.lightAt(c.x, c.y, c.z));
+      this.game.smokeMat.color.setRGB(0.8 * l, 0.8 * l, 0.8 * l);
+    }
     for (let i = this.list.length - 1; i >= 0; i--) {
       const p = this.list[i];
       p.life -= dt;
@@ -667,12 +678,13 @@ class Particles {
       if (p.life <= 0) {
         this.game.scene.remove(p.mesh);
         if (!p.smoke) p.mesh.geometry.dispose();
+        if (p.shared && --p.shared.refs <= 0) p.shared.mat.dispose();
         this.list.splice(i, 1);
       }
     }
   }
   clear() {
-    for (const p of this.list) { this.game.scene.remove(p.mesh); if (!p.smoke) p.mesh.geometry.dispose(); }
+    for (const p of this.list) { this.game.scene.remove(p.mesh); if (!p.smoke) p.mesh.geometry.dispose(); if (p.shared && --p.shared.refs <= 0) p.shared.mat.dispose(); }
     this.list = [];
   }
 }

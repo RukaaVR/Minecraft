@@ -218,6 +218,9 @@ void main() {
   vec3 wp = position;
   float face = floor(light.w / 16.0 + 0.001);
   float mat = light.w - face * 16.0;
+  // Swaying plant tops (8) are still foliage (1): keep the code the same on every
+  // vertex so it doesn't blend through other material ids across the blade.
+  if (mat > 7.5 && mat < 8.5) vLight.w = face * 16.0 + 1.0;
   float amount = mat > 7.5 && mat < 8.5 ? 1.0 : (mat > 1.5 && mat < 2.5 ? 0.35 : 0.0);
   if (amount > 0.0) wp += windOffset(wp, frameTimeCounter) * amount;
   vWorld = wp;

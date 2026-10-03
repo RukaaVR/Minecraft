@@ -615,6 +615,8 @@ class Game {
   }
 
   doSwing() {
+    // restart only once the current swing is half done, so holding the button loops smoothly
+    if (this.swing > 0.5) return;
     this.swing = 1;
     this.swingCount++;
   }
@@ -1501,7 +1503,7 @@ class Game {
     this.updateTargetOverlay();
     this.updateHand(dt);
     this.sendPresence();
-    this.swing = Math.max(0, this.swing - dt * 4);
+    this.swing = Math.max(0, this.swing - dt / 0.3);
 
     this.saveTimer += dt;
     if (this.saveTimer > 15) { this.saveTimer = 0; this.save(); }
@@ -1603,9 +1605,16 @@ class Game {
   updateCamera(dt) {
     const p = this.player;
     const camMode = this.mode === 'play' && this.ui ? this.ui.camMode : 0;
-    const bob = p.onGround && this.mode === 'play' && camMode === 0 ? Math.sin(p.bobTime * Math.PI) * 0.04 : 0;
-    this.camera.position.set(p.pos.x, p.pos.y + p.eyeHeight + Math.abs(bob), p.pos.z);
-    this.camera.rotation.set(p.pitch, p.yaw, 0);
+    // Minecraft-style view bobbing: sideways sway, a dip on each step and a slight roll
+    const amt = this.mode === 'play' && camMode === 0 ? (this.bobAmt || 0) : 0;
+    const ph = p.bobTime * Math.PI, bb = amt * 0.07;
+    this.camera.position.set(p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
+    this.camera.rotation.set(p.pitch - Math.abs(Math.cos(ph - 0.2) * bb) * 0.35, p.yaw, Math.sin(ph) * bb * 0.12);
+    if (amt > 0) {
+      const side = new THREE.Vector3(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
+      this.camera.position.addScaledVector(side, Math.sin(ph) * bb * 0.5);
+      this.camera.position.y += Math.abs(Math.cos(ph)) * bb - bb * 0.5;
+    }
     // Third person (F5): pull the camera back (or in front), stopping at walls.
     if (!this.localModel) {
       this.localModel = buildModel('player');
@@ -1684,38 +1693,111 @@ class Game {
     const p = this.player;
     const held = p.heldStack;
     const id = held ? held.id : 0;
+    if (!this.handRoot) {
+      // root: bobbing and sway; pivot: rest position + swing; mesh: per-item orientation
+      this.handRoot = new THREE.Group();
+      this.handPivot = new THREE.Group();
+      this.handRoot.add(this.handPivot);
+      this.handScene.add(this.handRoot);
+      this.handLag = { yaw: p.yaw, pitch: p.pitch };
+      this.equip = 0;
+      this.bobAmt = 0;
+    }
     if (id !== this.handId) {
-      if (this.handMesh) { this.handScene.remove(this.handMesh); this.handMesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+      if (this.handMesh) { this.handPivot.remove(this.handMesh); this.handMesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
       if (!id) {
         const skin = skinTexture('player');
         const mat = new THREE.MeshBasicMaterial({ map: skin.tex });
+        // the group's origin is the shoulder; the arm hangs down from it, then points forward
         const arm = new THREE.Mesh(skinBox(4, 12, 4, 40, 16, skin.w, skin.h), mat);
+        arm.position.y = -0.36;
+        const g = new THREE.Group();
+        g.add(arm);
+        g.rotation.set(Math.PI / 2 - 0.12, -0.18, 0.42, 'YXZ');
         this.handMesh = new THREE.Group();
-        arm.rotation.set(Math.PI / 2 - 0.35, 0, 0.25);
-        this.handMesh.add(arm);
+        this.handMesh.add(g);
         this.handMesh.userData.arm = true;
       } else if (isCubeItem(id)) {
-        this.handMesh = new THREE.Mesh(blockGeometry(id, 0.4), this.entityMat.clone());
+        const cube = new THREE.Mesh(blockGeometry(id, 0.4), this.entityMat.clone());
+        cube.rotation.set(0.1, 0.75, 0);
+        this.handMesh = new THREE.Group();
+        this.handMesh.add(cube);
       } else {
-        this.handMesh = new THREE.Mesh(itemGeometry(id, 0.42), this.entityMat.clone());
+        // the group's origin is where the hand grips the item (its lower-left corner)
+        const flat = new THREE.Mesh(itemGeometry(id, 0.42), this.entityMat.clone());
+        flat.position.set(0.15, 0.15, 0);
+        const g = new THREE.Group();
+        g.add(flat);
+        g.rotation.set(0, -0.6, 0.1);
+        this.handMesh = new THREE.Group();
+        this.handMesh.add(g);
         this.handMesh.userData.flat = true;
       }
-      this.handScene.add(this.handMesh);
+      this.handPivot.add(this.handMesh);
+      // switching items dips the hand out of view and back (like Minecraft's equip animation)
+      if (this.handId !== -1) this.equip = 1;
       this.handId = id;
     }
-    const s = Math.sin(this.swing * Math.PI);
-    const bob = p.bobTime * Math.PI;
     const m = this.handMesh;
-    m.visible = p.mode !== 'spectator' && !p.dead;
-    let x = 0.52 + Math.cos(bob) * 0.015 - s * 0.25, y = -0.5 + Math.abs(Math.sin(bob)) * 0.025 + s * 0.12, z = -0.85 - s * 0.15;
-    if (this.eating > 0) { x = 0.25; y = -0.38 + Math.abs(Math.sin(this.eating * 18)) * 0.04; z = -0.6; }
-    if (m.userData.arm) { m.position.set(x + 0.08, y - 0.12, z + 0.1); m.rotation.set(-s * 0.8, 0.15 - s * 0.3, 0); }
-    else if (m.userData.flat) {
-      const draw = this.bowCharge > 0 ? this.bowCharge : 0;
-      m.position.set(x - 0.02 - draw * 0.2, y + 0.12 + draw * 0.1, z - 0.05 + draw * 0.15);
-      m.rotation.set(-s * 1.0, -0.6 + draw * 0.5, 0.1 - draw * 0.3);
+    this.handRoot.visible = p.mode !== 'spectator' && !p.dead;
+    this.equip = Math.max(0, this.equip - dt * 5);
+
+    // Swing progress 0..1 (Minecraft's curves: sqrt and squared easing)
+    const sp = this.swing > 0 ? 1 - this.swing : 0;
+    const sq = Math.sqrt(sp);
+    const PI = Math.PI;
+    let tx = 0.52, ty = -0.52 - this.equip * 0.6, tz = -0.78;
+    const q = new THREE.Quaternion(), tmp = new THREE.Quaternion();
+    const rot = (axis, a) => { tmp.setFromAxisAngle(axis, a); q.multiply(tmp); };
+    const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
+    const f1 = Math.sin(sq * PI), f2 = Math.sin(sp * sp * PI), up = Math.sin(sq * 2 * PI);
+    if (this.eating > 0) {
+      // bring the food to the mouth and bob it
+      tx = 0.2; ty = -0.34 + Math.abs(Math.sin(this.eating * 14)) * 0.05; tz = -0.6;
+      rot(Y, 0.6); rot(X, 0.25);
+    } else if (m.userData.arm) {
+      // a punch: the fist jabs forward and to the middle, then drops back
+      tx = 0.48 - f1 * 0.24; ty = -0.56 - this.equip * 0.6 + up * 0.12; tz = -0.42 - Math.sin(sp * PI) * 0.22;
+      rot(Y, f1 * 0.55);
+      rot(X, f1 * 0.35 - f2 * 0.25);
+      rot(Z, -f2 * 0.2);
+    } else if (m.userData.flat) {
+      // a swing: the blade sweeps down and across, pivoting at the grip
+      tx += -0.32 * f1; ty += 0.14 * up - 0.06; tz += -0.18 * Math.sin(sp * PI);
+      rot(Y, f2 * 0.35);
+      rot(Z, f1 * 0.55);
+      rot(X, -f1 * 1.15);
+    } else {
+      tx += -0.38 * f1; ty += 0.18 * up; tz += -0.2 * Math.sin(sp * PI);
+      rot(Y, (45 + f2 * -20) * PI / 180);
+      rot(Z, f1 * -20 * PI / 180);
+      rot(X, f1 * -60 * PI / 180);
+      rot(Y, -45 * PI / 180);
     }
-    else { m.position.set(x, y, z); m.rotation.set(0.1 - s * 0.6, 0.75, 0); }
+    if (m.userData.flat && this.bowCharge > 0) {
+      const d = this.bowCharge;
+      tx -= d * 0.22; ty += d * 0.1; tz += d * 0.12;
+      rot(Y, d * 0.5); rot(Z, -d * 0.3);
+      if (d >= 1) tx += Math.sin(performance.now() / 30) * 0.004;
+    }
+    this.handPivot.position.set(tx, ty, tz);
+    this.handPivot.quaternion.copy(q);
+
+    // View bobbing (the same motion Minecraft gives the camera) and a little sway when turning
+    const speed = Math.hypot(p.vel.x, p.vel.z);
+    const want = p.onGround && !p.flying ? Math.min(1, speed / 4.3) : 0;
+    this.bobAmt += (want - this.bobAmt) * Math.min(1, dt * 8);
+    const ph = p.bobTime * PI, b = this.bobAmt * 0.06;
+    const lag = this.handLag;
+    let dyaw = p.yaw - lag.yaw;
+    while (dyaw > PI) dyaw -= PI * 2;
+    while (dyaw < -PI) dyaw += PI * 2;
+    lag.yaw += dyaw * Math.min(1, dt * 12);
+    lag.pitch += (p.pitch - lag.pitch) * Math.min(1, dt * 12);
+    const breathe = Math.sin(performance.now() / 900) * 0.006;
+    this.handRoot.position.set(Math.sin(ph) * b * 0.5, -Math.abs(Math.cos(ph) * b) + breathe, 0);
+    this.handRoot.rotation.set(Math.abs(Math.cos(ph - 0.2) * b) * 1.4 + (p.pitch - lag.pitch) * 0.25, (p.yaw - lag.yaw) * 0.25, Math.sin(ph) * b * 0.8);
+
     const l = this.lightAt(p.pos.x, p.pos.y + 1.6, p.pos.z);
     m.traverse((o) => { if (o.material) o.material.color.setRGB(l, l, l); });
   }

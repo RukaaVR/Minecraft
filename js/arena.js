@@ -110,9 +110,11 @@ const Arena = {
     }
     // Game pedestals
     const pedestals = {
+      bridge: { pos: [-13, Y + 1, -11], deco: B.WOOL_BLUE },
       bedwars: { pos: [-7, Y + 1, -15], deco: B.WOOL_RED },
       duels: { pos: [0, Y + 1, -16], deco: B.IRON_BLOCK },
       skywars: { pos: [7, Y + 1, -15], deco: B.GRASS },
+      murder: { pos: [13, Y + 1, -11], deco: B.WOOL_BLACK },
     };
     for (const p of Object.values(pedestals)) {
       const [x, , z] = p.pos;
