@@ -42,13 +42,13 @@ const Preview = {
     if (this.renderer) return;
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: false });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    this.renderer.setSize(92, 96);
+    this.renderer.setSize(124, 128);
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.domElement.className = 'pp-img pp-3d';
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(30, 92 / 96, 0.1, 20);
-    this.camera.position.set(0, 1.0, 4.0);
-    this.camera.lookAt(0, 0.93, 0);
+    this.camera = new THREE.PerspectiveCamera(30, 124 / 128, 0.1, 20);
+    this.camera.position.set(0, 1.02, 4.15);
+    this.camera.lookAt(0, 1.0, 0);
     this.model = buildModel('player');
     this.scene.add(this.model.root);
     document.addEventListener('mousemove', (e) => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; });

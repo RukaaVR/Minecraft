@@ -281,7 +281,7 @@ class Player {
     } else if (this.food === 0) {
       this.starveTimer += dt;
       if (this.starveTimer >= 4) { this.starveTimer = 0; if (this.health > 1) this.damage(1, 'starve'); }
-    } else this.regenTimer = Math.min(this.regenTimer, 4);
+    } else this.regenTimer = 0;
   }
 
   serialize() {

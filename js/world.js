@@ -850,7 +850,7 @@ class World {
     let t = 0;
     while (t <= maxDist) {
       const id = this.getBlock(x, y, z);
-      if (id !== B.AIR && (hitFluids || id !== B.WATER)) {
+      if (id !== B.AIR && (hitFluids || !FLUID[id])) {
         if (!BLOCKS[id].shape) return { x, y, z, id, normal, dist: t };
         // Shaped blocks (slabs, stairs, fences...) are hit only on their actual boxes
         const bx = x, by = y, bz = z;

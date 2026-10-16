@@ -545,6 +545,10 @@ class UI {
   updateHud(dt) {
     const g = this.game, p = g.player;
     if (g.mode !== 'play' || !p) return;
+    if (this.gui && this.gui.kind === 'furnace') {
+      const d = g.world.getData(...this.gui.pos), ff = document.querySelector('.flame-fill'), af = document.querySelector('.arrow-fill');
+      if (d && ff && af) { ff.style.height = (d.burnMax ? Math.max(0, d.burn / d.burnMax) * 100 : 0) + '%'; af.style.width = (d.cook / SMELT_TIME * 100) + '%'; }
+    }
     const surv = p.usesHealth;
     $('stats').hidden = !surv;
     $('hotbar').hidden = p.mode === 'spectator';
@@ -1182,8 +1186,9 @@ class UI {
         if (e.code.startsWith('Digit') && this.hoverSlot && !this.hoverSlot.ref.output && !this.hoverSlot.ref.creative) {
           const n = parseInt(e.code.slice(5), 10) - 1;
           if (n >= 0 && n < 9) {
-            const a = this.hoverSlot.ref, inv = p.inventory;
-            const s = a.get(); a.set(inv.slots[n]); inv.slots[n] = s; inv.changed(); this.renderGui();
+            const a = this.hoverSlot.ref, inv = p.inventory, h = inv.slots[n];
+            if (h && (a.takeOnly || (a.accepts && !a.accepts(h)))) return;
+            const s = a.get(); a.set(h); inv.slots[n] = s; inv.changed(); this.renderGui();
           }
         }
         if (e.code === 'KeyQ' && this.hoverSlot && !this.hoverSlot.ref.output && !this.hoverSlot.ref.creative) {

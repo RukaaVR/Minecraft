@@ -361,7 +361,7 @@ Object.assign(Game.prototype, {
 
   useBed(hit) {
     const p = this.player;
-    if (this.world.dim === 1) {
+    if (this.world.dim !== 0) {
       this.changeBlock(hit.x, hit.y, hit.z, B.AIR);
       this.explode(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 5, true);
       return;
@@ -389,20 +389,22 @@ Object.assign(Game.prototype, {
     this.villageTimer = 3;
     const p = this.player;
     for (const v of Villages.near(this.world, p.pos.x, p.pos.z, 100)) {
-      if (this.villagePopulated.has(v.id)) {
-        // repopulate if they were unloaded
-        let alive = false;
-        for (const m of this.mobs.values()) if (m.villageId === v.id) { alive = true; break; }
-        if (alive || !this._chunkReady(v.center[0], v.center[2])) continue;
-      }
+      // Populated once; repopulated only after its mobs were unloaded (updateSpawning), not killed
+      if (this.villagePopulated.has(v.id)) continue;
+      let alive = false;
+      for (const m of this.mobs.values()) if (m.villageId === v.id) { alive = true; break; }
+      if (alive) continue;
       if (!this._chunkReady(v.center[0], v.center[2])) continue;
       let ok = true;
       for (const [x, , z] of v.villagers) if (!this._chunkReady(x, z)) ok = false;
       if (!ok) continue;
       this.villagePopulated.add(v.id);
       const spots = v.villagers.concat([[v.center[0] + 2.5, v.center[1], v.center[2] + 2.5], [v.center[0] - 1.5, v.center[1], v.center[2] + 3.5]]);
-      for (const [x, , z] of spots) {
-        const y = this.world.surfaceY(Math.floor(x), Math.floor(z)) + 1;
+      for (const [x, sy, z] of spots) {
+        const w = this.world, fx = Math.floor(x), fy = Math.floor(sy), fz = Math.floor(z);
+        // planned spots are inside houses: stand on their floor, not on the roof above
+        const free = w.getBlock(fx, fy, fz) === B.AIR && w.getBlock(fx, fy + 1, fz) === B.AIR && isSolid(w.getBlock(fx, fy - 1, fz));
+        const y = free ? fy : w.surfaceY(fx, fz) + 1;
         const m = this.spawnMob('villager', x, y, z, { home: v.center });
         m.villageId = v.id;
       }

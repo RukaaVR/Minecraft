@@ -530,10 +530,8 @@ wrapGame('onDeath', function (orig, cause) {
 
 // Respawning while in the End goes back to the Overworld
 wrapGame('respawn', function (orig) {
-  const inEnd = this.world.dim === 2;
-  if (inEnd) {
-    this._switchWorld(0);
-  }
+  // Respawning from the Nether or the End goes back to the Overworld
+  if (this.world.dim !== 0 && !this.hardcore) this._switchWorld(0);
   orig.call(this);
 });
 

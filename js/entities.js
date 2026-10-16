@@ -111,6 +111,7 @@ class Mob {
     else { this.vel.x += knockX / kl * 3; this.vel.z += knockZ / kl * 3; }
     this.lastHitBy = attacker;
     if (!this.info.hostile && !this.info.neutral) this.panic = 4;
+    if (this.type === 'golem' && attacker !== 'env' && !(attacker instanceof Mob)) this.angry = 30; // golems fight back
     if (this.info.neutral && attacker !== 'env') {
       // Zombified piglins anger the whole group nearby
       for (const m of this.game.mobs.values()) if (m.type === this.type && m.pos.distanceTo(this.pos) < 24) m.angry = 30;
@@ -266,9 +267,15 @@ class Mob {
       this.vel.z += (dirZ * speed - this.vel.z) * Math.min(1, ctrl * dt);
     }
     if (inWater || inLava) { this.vel.y += (2.5 - this.vel.y) * Math.min(1, 4 * dt); }
-    else this.vel.y -= 32 * dt;
+    else {
+      this.vel.y -= 32 * dt;
+      if (this.type === 'chicken' && this.vel.y < -3) this.vel.y = -3; // chickens flutter down
+    }
     const res = moveBody(world, this, dt);
-    if ((res.hitX || res.hitZ) && this.onGround && speed > 0) this.vel.y = 8.6;
+    if ((res.hitX || res.hitZ) && speed > 0) {
+      if (this.type === 'spider') this.vel.y = 3.5; // spiders climb walls
+      else if (this.onGround) this.vel.y = 8.6;
+    }
 
     const moving = Math.hypot(this.vel.x, this.vel.z);
     this.walkPhase += moving * dt * 4;

@@ -399,7 +399,7 @@ class Game {
     if (!this.world) return 1;
     const l = this.world.getLight(Math.floor(x), Math.floor(y), Math.floor(z));
     if (this.hdr) return this.halcyon.entityLight(l.sky, l.block);
-    const amb = this.world.dim === 1 ? 0.4 : 0.06;
+    const amb = this.world.dim === 1 ? 0.4 : this.world.dim === 2 ? 0.3 : 0.06;
     return Math.max(LIGHT_CURVE[l.sky] * this.daylight, LIGHT_CURVE[l.block], amb);
   }
 
@@ -549,7 +549,8 @@ class Game {
         this.primeTnt(bx, by, bz, 0.5 + Math.random());
         continue;
       }
-      if (this.world.getData(bx, by, bz)) this.dropBlockItems(bx, by, bz, id, false);
+      const data = this.world.getData(bx, by, bz);
+      if (data && data.slots) for (const s of data.slots) if (s) this.spawnItem(stackOf(s[0], s[1], s[2], s[3]), bx + 0.5, by + 0.5, bz + 0.5);
       this.world.setBlock(bx, by, bz, B.AIR);
       cleared.push([bx, by, bz, B.AIR]);
       if (Math.random() < 0.3) this.dropBlockItems(bx, by, bz, id, true);
@@ -894,6 +895,8 @@ class Game {
       if (s) this.spawnItem(stackOf(s.id, s.count, s.dmg, s.ench), p.pos.x, p.pos.y + 1, p.pos.z);
     }
     p.inventory.clear();
+    for (const s of p.armor.slots) if (s) this.spawnItem(stackOf(s.id, s.count, s.dmg, s.ench), p.pos.x, p.pos.y + 1, p.pos.z);
+    p.armor.clear();
     this.ui.showDeath(text, this.hardcore);
   }
 
@@ -924,8 +927,8 @@ class Game {
       if (d.burn > 0) d.burn -= dt;
       if (d.burn <= 0 && canSmelt && s[1] && ITEMS[s[1][0]] && ITEMS[s[1][0]].fuel > 0) {
         d.burnMax = d.burn = ITEMS[s[1][0]].fuel;
-        s[1][1]--;
-        if (s[1][1] <= 0) s[1] = 0;
+        if (s[1][0] === ITEM.LAVA_BUCKET) s[1] = [ITEM.BUCKET, 1, 0];
+        else { s[1][1]--; if (s[1][1] <= 0) s[1] = 0; }
         changed = true;
       }
       if (d.burn > 0 && canSmelt) {
@@ -966,7 +969,8 @@ class Game {
       let near = Infinity;
       for (const p of players) near = Math.min(near, p.pos.distanceTo(m.pos));
       const far = m.info.persistent ? 1e9 : m.info.hostile ? 80 : 110;
-      if (near > far || !w.isLoaded(m.pos.x, m.pos.z) || (m.info.hostile && this.difficulty === 0)) {
+      if (near > far || (!w.isLoaded(m.pos.x, m.pos.z) && !m.info.boss) || (m.info.hostile && !m.info.boss && this.difficulty === 0)) {
+        if (m.villageId) this.villagePopulated.delete(m.villageId); // unloaded: the village may repopulate later
         m.dispose(); this.mobs.delete(m.id); continue;
       }
       if (m.info.hostile || m.info.neutral) hostile++; else if (!m.info.persistent) passive++;
@@ -1367,7 +1371,8 @@ class Game {
         if (!MOB_TYPES.includes(type)) { say('Mobs: ' + MOB_TYPES.join(', '), '#f55'); return; }
         if (!this.isAuthority) { say('Only the host can summon mobs.', '#f55'); return; }
         const d = p.lookDir();
-        const sz = type === 'slime' && args[1] ? { size: Math.max(1, Math.min(4, parseInt(args[1], 10) || 1)) } : undefined;
+        const sn = parseInt(args[1], 10);
+        const sz = type === 'slime' && args[1] ? { size: sn >= 4 ? 4 : sn >= 2 ? 2 : 1 } : undefined;
         this.spawnMob(type, p.pos.x + d.x * 3, p.pos.y + 0.5, p.pos.z + d.z * 3, sz);
         say(`Summoned new ${type[0].toUpperCase() + type.slice(1)}`);
         break;
@@ -1420,9 +1425,12 @@ class Game {
     const ready = this.isReady();
     if (ready && this.spawnPending) {
       const bx = Math.floor(p.pos.x), bz = Math.floor(p.pos.z);
-      let y = WORLD_HEIGHT - 2;
-      while (y > 0 && !isSolid(world.getBlock(bx, y, bz)) && world.getBlock(bx, y, bz) !== B.WATER) y--;
-      p.pos.y = y + 1;
+      const under = world.getBlock(bx, Math.floor(p.pos.y) - 1, bz);
+      if (under !== B.BED_FOOT && under !== B.BED_HEAD) { // a bed spawn keeps its exact height
+        let y = WORLD_HEIGHT - 2;
+        while (y > 0 && !isSolid(world.getBlock(bx, y, bz)) && world.getBlock(bx, y, bz) !== B.WATER) y--;
+        p.pos.y = y + 1;
+      }
       p.vel.set(0, 0, 0);
       p.fallStart = null;
       this.spawnPending = false;
@@ -1461,7 +1469,7 @@ class Game {
       if (this.timeOfDay < before) this.dayCount = (this.dayCount || 0) + 1;
       if (ready) this.updateSpawning(dt);
       for (const [id, m] of this.mobs) {
-        if (!world.isLoaded(m.pos.x, m.pos.z)) continue;
+        if (!world.isLoaded(m.pos.x, m.pos.z) && !m.info.boss) continue; // the dragon flies over unloaded chunks
         m.simulate(dt);
         if (m.dead && m.deathTime > 0.9) {
           if (m.deathTime < 50) this.particles.smoke(m.pos.x, m.pos.y + 0.5, m.pos.z, 6);
@@ -1730,6 +1738,8 @@ class Game {
         const mat = new THREE.MeshBasicMaterial({ map: skin.tex });
         // the group's origin is the shoulder; the arm hangs down from it, then points forward
         const arm = new THREE.Mesh(skinBox(4, 12, 4, 40, 16, skin.w, skin.h), mat);
+        shadeBoxGeometry(arm.geometry);
+        mat.vertexColors = true;
         arm.position.y = -0.36;
         const g = new THREE.Group();
         g.add(arm);
