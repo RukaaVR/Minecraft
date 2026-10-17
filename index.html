@@ -15,6 +15,7 @@
   <div id="hud" hidden>
     <div id="underwater" hidden></div>
     <div id="vignette"></div>
+    <div id="subtitles"></div>
     <div id="hurt-overlay"></div>
     <div id="portal-overlay"></div>
     <div id="fire-overlay" hidden></div>
@@ -168,25 +169,10 @@
   </div>
 
   <div id="screen-options" class="screen" hidden>
-    <h2>Options</h2>
-    <div class="form options">
-      <button id="btn-opt-shaders" class="btn">Shaders: Halcyon (Medium)</button>
-      <p id="opt-shaders-desc" class="desc">Your Halcyon shader pack, ported to the browser: soft shadows, volumetric clouds, reflective water, god rays and bloom. Lower it if the game feels slow.</p>
-      <label class="slider"><span id="opt-fov-label">FOV</span><input id="opt-fov" type="range" min="30" max="110" step="1"></label>
-      <label class="slider"><span id="opt-rd-label">Render Distance</span><input id="opt-rd" type="range" min="2" max="12" step="1"></label>
-      <label class="slider"><span id="opt-sens-label">Sensitivity</span><input id="opt-sens" type="range" min="0.2" max="3" step="0.05"></label>
-      <label class="slider"><span id="opt-vol-label">Sound</span><input id="opt-vol" type="range" min="0" max="1" step="0.05"></label>
-      <label class="slider"><span id="opt-music-label">Music</span><input id="opt-music" type="range" min="0" max="1" step="0.05"></label>
-      <label for="opt-name">Username</label>
-      <input id="opt-name" type="text" maxlength="16" class="field">
-    </div>
-    <div class="controls">
-      <div><kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> sneak · <kbd>W</kbd>×2 or <kbd>Ctrl</kbd> sprint</div>
-      <div><kbd>Left</kbd> mine / attack · <kbd>Right</kbd> place / use / eat · <kbd>Middle</kbd> pick block</div>
-      <div><kbd>E</kbd> inventory · <kbd>Q</kbd> drop · <kbd>1–9</kbd> hotbar · <kbd>T</kbd> chat · <kbd>/</kbd> command</div>
-      <div><kbd>F1</kbd> hide HUD · <kbd>F3</kbd> debug · <kbd>F5</kbd> camera · <kbd>Space</kbd>×2 fly (creative)</div>
-    </div>
-    <div class="buttons narrow"><button id="btn-opt-done" class="btn">Done</button></div>
+    <h2 id="opt-title">Options</h2>
+    <div id="opt-body" class="opt-body"></div>
+    <p id="opt-desc" class="desc center opt-desc"></p>
+    <div id="opt-footer" class="opt-footer"><button id="btn-opt-done" class="btn">Done</button></div>
   </div>
 
   <div id="screen-pause" class="screen" hidden>
@@ -219,6 +205,7 @@
   <script src="js/entities.js"></script>
   <script src="js/mobs2.js"></script>
   <script src="js/bestiary.js"></script>
+  <script src="js/pathfind.js"></script>
   <script src="js/net.js"></script>
   <script src="js/halcyon_glsl.js"></script>
   <script src="js/halcyon.js"></script>
@@ -233,6 +220,7 @@
   <script src="js/network.js"></script>
   <script src="js/minigames.js"></script>
   <script src="js/visuals.js"></script>
+  <script src="js/options.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

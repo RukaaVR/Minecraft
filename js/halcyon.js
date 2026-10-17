@@ -115,7 +115,7 @@ class HalcyonRenderer {
     this.u = {
       frameTimeCounter: U(0), sunDir: U(new THREE.Vector3(0, 1, 0)), moonDir: U(new THREE.Vector3(0, -1, 0)),
       lightDir: U(new THREE.Vector3(0, 1, 0)), sunColor: U(new THREE.Vector3()), lightColor: U(new THREE.Vector3()),
-      skyAmbient: U(new THREE.Vector3()), heldLight: U(new THREE.Vector4()), moonPhase: U(0), rainStrength: U(0), far: U(96), isEyeInWater: U(0),
+      skyAmbient: U(new THREE.Vector3()), heldLight: U(new THREE.Vector4()), gammaBoost: U(0), cloudsOn: U(1), moonPhase: U(0), rainStrength: U(0), far: U(96), isEyeInWater: U(0),
       eyeSky: U(1), dimension: U(0), fogColorLin: U(new THREE.Vector3(0.05, 0.005, 0.004)),
       skyLUT: U(null), shadowtex: U(null), shadowMatrix: U(new THREE.Matrix4()),
     };
@@ -199,6 +199,7 @@ void main() {
 #else
   vec4 clouds = renderClouds2D(camPosW, dir, lightDir, lightColor, skyAmbient / PI, frameTimeCounter);
 #endif
+  if (cloudsOn < 0.5) clouds = vec4(0.0, 0.0, 0.0, 1.0);
   float horizonFade = smoothstep(-0.02, 0.08, dir.y);
   clouds.rgb *= horizonFade;
   clouds.a = mix(1.0, clouds.a, horizonFade);

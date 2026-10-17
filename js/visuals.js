@@ -63,9 +63,9 @@ const Preview = {
     const el = this.renderer.domElement;
     if (!el.isConnected) { this.running = false; return; }
     requestAnimationFrame(() => this.loop());
-    const g = this.game, p = g.player, m = this.model;
-    setModelArmor(m, p.armor.slots.map((s) => (s ? s.id : 0)));
-    setModelHeld(m, p.heldStack ? p.heldStack.id : 0, g.entityMat);
+    const g = this.game, p = g.mode === 'play' ? g.player : null, m = this.model;
+    setModelArmor(m, p ? p.armor.slots.map((s) => (s ? s.id : 0)) : []);
+    setModelHeld(m, p && p.heldStack ? p.heldStack.id : 0, g.entityMat);
     // look toward the mouse, like the inventory player in Minecraft
     const r = el.getBoundingClientRect();
     const dx = (this.mouse.x - (r.left + r.width / 2)) / 120, dy = (this.mouse.y - (r.top + r.height * 0.2)) / 120;
@@ -114,13 +114,14 @@ UI.prototype.playerPreview = function () { return Preview.element(this.game); };
     if (camMode !== 0) return;
     // Minecraft's hurt tilt: a quick roll that eases back
     const h = Math.sin(fx.hurt * fx.hurt * Math.PI);
-    cam.rotation.z += h * 0.22 * fx.hurtDir;
-    if (fx.shake > 0) {
-      const a = fx.shake * fx.shake * 0.12, t = performance.now() / 1000;
+    const st = this.settings, distort = st.distortion ?? 1;
+    cam.rotation.z += h * 0.22 * fx.hurtDir * (st.damageTilt ?? 1);
+    if (fx.shake > 0 && distort > 0) {
+      const a = fx.shake * fx.shake * 0.12 * distort, t = performance.now() / 1000;
       cam.position.x += Math.sin(t * 61) * a; cam.position.y += Math.sin(t * 53 + 1) * a; cam.position.z += Math.sin(t * 47 + 2) * a;
       cam.rotation.z += Math.sin(t * 37) * a * 0.3;
     }
-    cam.position.y -= Math.sin(Math.min(1, fx.dip / 0.12) * Math.PI) * fx.dip;
+    cam.position.y -= Math.sin(Math.min(1, fx.dip / 0.12) * Math.PI) * fx.dip * distort;
   };
 
   // Explosions shake the camera by distance

@@ -200,33 +200,7 @@ class UI {
     };
     $('mp-name').onchange = () => { this.game.settings.name = this.cleanName($('mp-name').value); this.saveSettings(); };
 
-    // Options
-    const bindRange = (id, key, fmt, apply) => {
-      const r = $(id);
-      r.oninput = () => {
-        const v = parseFloat(r.value);
-        this.game.settings[key] = v;
-        $(id + '-label').textContent = fmt(v);
-        if (apply) apply(v);
-        this.saveSettings();
-      };
-    };
-    bindRange('opt-fov', 'fov', (v) => 'FOV: ' + (v === 70 ? 'Normal' : v));
-    bindRange('opt-rd', 'renderDistance', (v) => `Render Distance: ${v} chunks`);
-    bindRange('opt-sens', 'sensitivity', (v) => `Sensitivity: ${Math.round(v * 100)}%`);
-    bindRange('opt-vol', 'volume', (v) => `Sound: ${v === 0 ? 'OFF' : Math.round(v * 100) + '%'}`, (v) => { Sound.volume = v; });
-    bindRange('opt-music', 'music', (v) => `Music: ${v === 0 ? 'OFF' : Math.round(v * 100) + '%'}`, (v) => { Sound.setMusicVolume(v); });
-    $('opt-name').onchange = () => { this.game.settings.name = this.cleanName($('opt-name').value); $('opt-name').value = this.game.settings.name; this.saveSettings(); };
-    $('btn-opt-done').onclick = () => this.showScreen(this.optionsBack || 'title');
-    $('btn-opt-shaders').onclick = () => {
-      const order = ['OFF', 'LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
-      const cur = this.game.settings.shaders || 'MEDIUM';
-      const next = order[(order.indexOf(cur) + 1) % order.length];
-      this.game.settings.shadersAuto = false;
-      this.game.setShaders(next);
-      this.saveSettings();
-      this.renderOptions();
-    };
+    // Options: built by options.js
 
     // Pause
     $('btn-resume').onclick = () => this.resume();
@@ -462,21 +436,8 @@ class UI {
     this.resume();
   }
 
-  // ---------------------------------------------------------------- options
-  renderOptions() {
-    const s = this.game.settings;
-    const set = (id, v, label) => { $(id).value = v; $(id + '-label').textContent = label; };
-    set('opt-fov', s.fov, 'FOV: ' + (s.fov === 70 ? 'Normal' : s.fov));
-    set('opt-rd', s.renderDistance, `Render Distance: ${s.renderDistance} chunks`);
-    set('opt-sens', s.sensitivity, `Sensitivity: ${Math.round(s.sensitivity * 100)}%`);
-    set('opt-vol', s.volume, `Sound: ${s.volume === 0 ? 'OFF' : Math.round(s.volume * 100) + '%'}`);
-    set('opt-music', s.music ?? 0.5, `Music: ${(s.music ?? 0.5) === 0 ? 'OFF' : Math.round((s.music ?? 0.5) * 100) + '%'}`);
-    $('opt-name').value = s.name;
-    const g = this.game;
-    const names = { OFF: 'OFF', LOW: 'Halcyon (Low)', MEDIUM: 'Halcyon (Medium)', HIGH: 'Halcyon (High)', ULTRA: 'Halcyon (Ultra)' };
-    const unsupported = s.shaders !== 'OFF' && g.halcyon && !g.halcyon.supported;
-    $('btn-opt-shaders').textContent = 'Shaders: ' + (unsupported ? 'not supported in this browser' : names[s.shaders || 'MEDIUM']);
-  }
+  // ---------------------------------------------------------------- options (see options.js)
+  renderOptions() {}
 
   // ---------------------------------------------------------------- HUD
   selectSlot(i) {

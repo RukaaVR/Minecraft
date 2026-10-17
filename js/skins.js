@@ -145,6 +145,7 @@ function buildHumanModel(skin) {
     const g = part(inner, mat, skinBox(w, h, d, u, v, W, H), pivot, offset);
     if (ou !== undefined) {
       const o = new THREE.Mesh(skinBox(w, h, d, ou, ov, W, H, name === 'head' ? 1 : 0.5), mat);
+      o.userData.layer = name === 'head' ? 'hat' : 'jacket';
       o.position.set(offset[0] * MODEL_SCALE, offset[1] * MODEL_SCALE, offset[2] * MODEL_SCALE);
       g.add(o);
     }
@@ -160,6 +161,9 @@ function buildHumanModel(skin) {
 }
 
 // ---------------------------------------------------------------- armour on the model
+// The local player's outfit (Options > Skin Customization)
+let LOCAL_SKIN_PALETTE = {};
+
 const ARMOR_TEX = {};
 function armorTexture(mat) {
   if (ARMOR_TEX[mat]) return ARMOR_TEX[mat];
@@ -228,7 +232,7 @@ function setModelHeld(model, id, entityMat) {
 // The player model and its skin come from here now
 // eslint-disable-next-line no-func-assign
 skinTexture = ((orig) => function (name) {
-  if (name === 'player') return playerSkinTexture('player', {}, 1);
+  if (name === 'player') return playerSkinTexture('player', LOCAL_SKIN_PALETTE, 1);
   return orig(name);
 })(skinTexture);
 // eslint-disable-next-line no-func-assign

@@ -24,6 +24,9 @@
   let frames = 0, acc = 0, slow = 0;
   function frame(now) {
     requestAnimationFrame(frame);
+    // Options > Video > Max Framerate
+    const cap = game.settings.maxFps;
+    if (cap && cap < 250 && now - last < 1000 / cap - 2) return;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     frames++; acc += dt;

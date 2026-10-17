@@ -152,7 +152,14 @@ class Player {
     this.saturation = Math.min(this.food, this.saturation + item.saturation);
   }
 
+  // Physics runs in steps of at most 1/60 s, so jumps and falls behave the same on slow
+  // computers (one 50 ms step used to cap a jump below one block)
   update(dt) {
+    const n = Math.max(1, Math.min(4, Math.ceil(dt * 60 - 0.01)));
+    for (let i = 0; i < n; i++) this.step(dt / n);
+  }
+
+  step(dt) {
     const k = this.keys;
     const world = this.world;
     this.inWater = boxInBlock(world, this.pos, this.w, 0.9, isWater);
@@ -208,7 +215,7 @@ class Player {
         this.exhaustion += this.sprinting ? 0.2 : 0.05;
         if (this.sprinting) { this.vel.x += wx * 1.5; this.vel.z += wz * 1.5; }
       }
-      this.vel.y = Math.max(-78, this.vel.y * (1 - 0.02 * dt * 60));
+      this.vel.y = Math.max(-78, this.vel.y * Math.pow(0.98, dt * 20)); // Minecraft's 2% air drag per tick
     }
 
     const before = this.pos.clone();

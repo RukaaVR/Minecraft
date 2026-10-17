@@ -76,6 +76,7 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 - **Sound**: everything is synthesized, with no audio files. Material footsteps and digging, a room reverb, left/right panning and distance falloff, voiced mob sounds, plucked bow strings, door and chest creaks, thunder, a rain bed, cave ambience, and generative piano music with its own volume slider.
 - **Mob models**: every mob is redrawn with Minecraft's proportions and hand-drawn pixel faces: pigs with snouts, patched cows with horns and udders, woolly sheep you can shear down to the skin, chickens with beaks and wattles, wolves with manes and collars, camouflage creepers, see-through skeleton ribcages, spiders with glowing red eyes, endermen with glowing purple eyes, villagers dressed by profession (the farmer's straw hat, the butcher's apron, the cleric's robe, the armorer's eyepatch), piglins with tusks and ears, iron golems with vines, see-through slimes, blazes and a scaled Ender Dragon. Every model is shaded per face so it reads as solid 3D, and mobs turn their heads to look at you.
 - **3D items and polish**: items in your hand, on the ground and in third person are solid 3D models (each texture pixel extruded, like Minecraft). The inventory shows a live 3D player model in your armour that turns to follow the mouse. A held torch, glowstone or lava bucket lights up the area around you. Mobs, players and items cast soft shadows. Items fly into you when picked up. The camera tilts when you're hurt, shakes in explosions and dips on hard landings. Critical hits throw sparks. A vignette frames the screen and pulses red at low health. Bodies turn and lean naturally: they lag behind the head, lean into sprints and crouch when sneaking.
+- **Options like Minecraft's**: FOV, Online (username, name tags), Skin Customization (hat and jacket layers, hair, skin tone, shirt and trousers, with a live 3D model, and other players see your outfit), Music & Sounds (master, music, weather, blocks, hostile and friendly creatures, players, and subtitles that show where sounds come from), Video Settings (shaders, render distance, max framerate, brightness, view bobbing, GUI scale, clouds, particles, entity shadows, fullscreen), Controls (mouse sensitivity, invert mouse and scroll, toggle or hold sneak and sprint, auto-jump, key binds), Chat Settings (shown or hidden, text size, opacity, background, width) and Accessibility (screen effects, FOV effects, damage tilt, lightning flashes, menu blur). Difficulty can be changed from Options while playing.
 - Several saved worlds, each autosaved in the browser
 
 ## Controls
@@ -94,7 +95,12 @@ Choose **Options → Shaders** to pick Low, Medium (the default), High (adds scr
 | Q / Ctrl+Q | Drop one item / drop the stack |
 | T or / | Chat / command |
 | F1 / F3 / F5 | Hide HUD / debug / camera |
+| F2 | Screenshot (saved as a PNG) |
+| F11 | Fullscreen |
+| Tab | Player list (Nova Network) |
 | Esc | Pause |
+
+Every key and mouse button can be rebound in **Options > Controls > Key Binds** (click a key, then press the new one; Escape unbinds it, and keys bound twice show in red).
 
 In inventories: left click picks up or places a stack, right click splits a stack or places one item, shift-click moves items quickly, and 1–9 swaps with the hotbar.
 
@@ -130,6 +136,7 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/sound.js` | Synthesized sound effects, reverb, spatial audio and generative music |
 | `js/skins.js` | The player skin's pixel art, outfits, the layered player model, armour on the model |
 | `js/bestiary.js` | Mob models and their pixel-art textures (auto-packed texture sheets), face shading for all models, mobs looking at you |
+| `js/options.js` | The Options screens, key binds (an input layer that translates rebound keys), sound categories and subtitles |
 | `js/visuals.js` | Natural body poses, the 3D inventory player, held-item light, camera effects, item pickup flight, blob shadows, vignette, crit sparks |
 | `server/server.js` | Multiplayer server and static file host |
 

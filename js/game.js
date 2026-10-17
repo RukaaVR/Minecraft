@@ -1586,12 +1586,13 @@ class Game {
     if (!nether && !end) {
       this.daylight *= 1 - wr * 0.3 - wt * 0.25;
       sc.current.lerp(new THREE.Color(0x5d6670).multiplyScalar(Math.max(0.15, this.daylight)), wr * 0.8);
-      if (this.weather && this.weather.flash > 0) this.daylight = Math.min(1, this.daylight + this.weather.flash * 0.6);
+      if (this.weather && this.weather.flash > 0 && !this.settings.hideLightning) this.daylight = Math.min(1, this.daylight + this.weather.flash * 0.6);
       this.starMat.opacity *= 1 - wr;
     }
     const vis = !this.hdr && !nether && !end;
     this.cloudMat.color.multiplyScalar(1 - wr * 0.45);
-    this.sun.visible = this.moon.visible = this.clouds.visible = vis;
+    this.sun.visible = this.moon.visible = vis;
+    this.clouds.visible = vis && this.settings.clouds !== false;
     if (!vis) this.stars.visible = false;
     if (!menu && this.player.eyeInLava) {
       fogColor = new THREE.Color(0.8, 0.25, 0.02);
@@ -1618,7 +1619,7 @@ class Game {
     }
     this.renderer.setClearColor(fogColor);
     for (const m of [this.vanillaMats.solid, this.vanillaMats.water]) {
-      m.uniforms.minLight.value = nether ? 0.36 : end ? 0.3 : 0.02;
+      m.uniforms.minLight.value = Math.max(0, (nether ? 0.36 : end ? 0.3 : 0.02) + this.brightnessBoost());
       m.uniforms.daylight.value = this.daylight;
       m.uniforms.fogColor.value.copy(fogColor);
       m.uniforms.fogNear.value = near;
@@ -1627,11 +1628,17 @@ class Game {
     this.underwater = underwater;
   }
 
+  // Options > Video > Brightness: 50% is the default look, higher lifts the darkness
+  brightnessBoost() {
+    const b = this.settings.brightness ?? 0.5;
+    return b > 0.5 ? (b - 0.5) * 0.36 : (b - 0.5) * 0.03;
+  }
+
   updateCamera(dt) {
     const p = this.player;
     const camMode = this.mode === 'play' && this.ui ? this.ui.camMode : 0;
     // Minecraft-style view bobbing: sideways sway, a dip on each step and a slight roll
-    const amt = this.mode === 'play' && camMode === 0 ? (this.bobAmt || 0) : 0;
+    const amt = this.mode === 'play' && camMode === 0 && this.settings.viewBobbing !== false ? (this.bobAmt || 0) : 0;
     const ph = p.bobTime * Math.PI, bb = amt * 0.07;
     this.camera.position.set(p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
     this.camera.rotation.set(p.pitch - Math.abs(Math.cos(ph - 0.2) * bb) * 0.35, p.yaw, Math.sin(ph) * bb * 0.12);
@@ -1667,7 +1674,7 @@ class Game {
       setModelArmor(lm, p.armor.slots.map((s) => (s ? s.id : 0)));
       setModelHeld(lm, p.heldStack ? p.heldStack.id : 0, this.entityMat);
     }
-    const targetFov = this.settings.fov + (p.sprinting ? 10 : 0) + (p.flying && p.sprinting ? 5 : 0);
+    const targetFov = this.settings.fov + ((p.sprinting ? 10 : 0) + (p.flying && p.sprinting ? 5 : 0)) * (this.settings.fovEffects ?? 1);
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 8);
       this.camera.updateProjectionMatrix();
@@ -1817,7 +1824,7 @@ class Game {
     const speed = Math.hypot(p.vel.x, p.vel.z);
     const want = p.onGround && !p.flying ? Math.min(1, speed / 4.3) : 0;
     this.bobAmt += (want - this.bobAmt) * Math.min(1, dt * 8);
-    const ph = p.bobTime * PI, b = this.bobAmt * 0.06;
+    const ph = p.bobTime * PI, b = this.bobAmt * 0.06 * (this.settings.viewBobbing === false ? 0 : 1);
     const lag = this.handLag;
     let dyaw = p.yaw - lag.yaw;
     while (dyaw > PI) dyaw -= PI * 2;

@@ -32,7 +32,7 @@ function halcyonSettings(p) {
 #define SUN_INTENSITY 1.00
 #define AMBIENT_LIGHT 1.00
 #define BLOCKLIGHT_INTENSITY 1.00
-#define MIN_LIGHT 0.006
+#define MIN_LIGHT (0.006 + gammaBoost)
 #define EXPOSURE 1.00
 #define AUTO_EXPOSURE
 #define SHADOW_SOFTNESS 1.00
@@ -142,6 +142,8 @@ uniform vec3 sunColor;
 uniform vec3 lightColor;
 uniform vec3 skyAmbient;
 uniform vec4 heldLight;
+uniform float gammaBoost;  // Options > Brightness
+uniform float cloudsOn;    // Options > Clouds
 uniform int moonPhase;
 uniform float rainStrength;
 uniform float far;
