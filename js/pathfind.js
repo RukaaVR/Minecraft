@@ -35,7 +35,7 @@
   const stats = { searches: 0, chase: 0, wander: 0, nodes: 0, ms: 0, frameMaxMs: 0, searchMaxMs: 0, partial: 0, direct: 0, stuck: 0, deferred: 0, errors: 0, lastError: null };
 
   // ------------------------------------------------------------------ block kinds
-  const K_PASS = 0, K_WATER = 1, K_LAVA = 2, K_FULL = 3, K_LOW = 4, K_TALL = 5, K_WALL = 6, K_AVOID = 7, K_DYN = 8;
+  const K_PASS = 0, K_WATER = 1, K_LAVA = 2, K_FULL = 3, K_LOW = 4, K_TALL = 5, K_WALL = 6, K_AVOID = 7, K_DYN = 8, K_DOOR = 9;
   const KIND = new Uint8Array(256);
   let kindsFor = -1;
   function buildKinds() {
@@ -62,7 +62,7 @@
     const b = BLOCKS[id];
     if (b.model === 'door') {
       const d = world.getData(x, id === B.DOOR_UPPER ? y - 1 : y, z);
-      return d && d.open ? K_PASS : K_WALL;
+      return d && d.open ? K_PASS : K_DOOR; // closed: a wall unless this mob opens or breaks doors
     }
     tmpBoxes.length = 0;
     try { blockBoxes(world, x, y, z, id, tmpBoxes); } catch (e) { return K_FULL; }
@@ -117,13 +117,14 @@
     const id = blockAt(W, x, y, z);
     let k = id < 0 ? K_WALL : KIND[id];
     if (k === K_DYN) k = dynKind(W, x, y, z, id);
+    if (k === K_DOOR && !DOORS) k = K_WALL;
     cellSt[i] = epoch; cellK[i] = k;
     return k;
   }
-  const bodyOK = (k) => k === K_PASS || k === K_WATER;
+  const bodyOK = (k) => k === K_PASS || k === K_WATER || k === K_DOOR;
 
   // Per-search mob parameters
-  let FP = 1, H = 1.95, HC = 2, HCL = 3, CLIMB = false, MAXDROP = 3, WATEROK = true, MOBW = 0.6;
+  let FP = 1, H = 1.95, HC = 2, HCL = 3, CLIMB = false, MAXDROP = 3, WATEROK = true, MOBW = 0.6, DOORS = 0, DOORCOST = 0;
 
   // One 1x1 column with the feet in block y. Returns -1 when the body can't be there,
   // else code | danger: code 0 = room but nothing to stand on, 1 = on the ground,
@@ -138,7 +139,7 @@
     const k0 = cell(x, y, z);
     let kb = -1;
     if (k0 === K_LOW) code = 2;
-    else if (k0 === K_PASS) {
+    else if (k0 === K_PASS || k0 === K_DOOR) {
       kb = cell(x, y - 1, z);
       if (kb === K_FULL) code = 1;
       else if (kb === K_TALL) code = -1;   // a fence pokes up into this cell
@@ -149,6 +150,7 @@
       const n = code === 2 ? HCL : HC;
       for (let j = 1; j < n; j++) if (!bodyOK(cell(x, y + j, z))) { code = -1; break; }
     }
+    if (code >= 0 && k0 === K_DOOR) code |= 16; // through a closed door
     if (code >= 0 && (kb === K_LAVA || cell(x + 1, y, z) === K_LAVA || cell(x - 1, y, z) === K_LAVA || cell(x, y, z + 1) === K_LAVA || cell(x, y, z - 1) === K_LAVA ||
       cell(x + 1, y - 1, z) === K_LAVA || cell(x - 1, y - 1, z) === K_LAVA || cell(x, y - 1, z + 1) === K_LAVA || cell(x, y - 1, z - 1) === K_LAVA)) code |= 8;
     colSt[i] = epoch; colV[i] = code;
@@ -170,7 +172,7 @@
     let code = 0;
     if (ca === 1 || ca === 2 || cb === 1 || cb === 2 || cc === 1 || cc === 2 || cd === 1 || cd === 2) code = low ? 2 : 1;
     else if (ca === 3 || cb === 3 || cc === 3 || cd === 3) code = 3;
-    return code | ((a | b | c | d) & 8);
+    return code | ((a | b | c | d) & 24);
   }
   const canStand = (r) => r >= 0 && (r & 7) !== 0 && ((r & 7) !== 3 || WATEROK);
   // Room for the body in the origin column(s) from block y0 to y1 (for jumps and climbs)
@@ -229,7 +231,7 @@
     gSt[j] = epoch; gSc[j] = g; par[j] = from;
     hpush(j, FLOOD ? g : g + CFG.weight * heur(x, y, z));
   }
-  const moveCost = (r, base) => base * ((r & 7) === 3 ? 3 : 1) + (r & 8 ? 4 : 0);
+  const moveCost = (r, base) => base * ((r & 7) === 3 ? 3 : 1) + (r & 8 ? 4 : 0) + (r & 16 ? DOORCOST : 0);
 
   function expand(i, x, y, z) {
     const r0 = stand(x, y, z), c0 = r0 & 7;
@@ -357,6 +359,8 @@
     HC = Math.max(1, Math.ceil(m.h - 0.05));
     HCL = Math.max(1, Math.ceil(m.h + 0.5 - 0.05));
     CLIMB = m.type === 'spider';
+    DOORS = doorMode(m);
+    DOORCOST = DOORS === 1 ? 1.5 : 8;
     MAXDROP = wander && !panic ? 1 : CLIMB ? 6 : CFG.maxDrop; // spiders climb down walls
     WATEROK = !wander || panic;
   }
@@ -535,7 +539,7 @@
     return 0;
   }
   function trackStuck(m, st, dt, speed, mode) {
-    if (speed <= 0 || mode === 0 || m.hurtTime >= 0.25) { st.chkT = 0; st.chkX = m.pos.x; st.chkZ = m.pos.z; return; }
+    if (speed <= 0 || mode === 0 || m.hurtTime >= 0.25 || st.atDoor) { st.chkT = 0; st.chkX = m.pos.x; st.chkZ = m.pos.z; return; }
     st.chkT += dt;
     if (st.chkT < 0.8) return;
     const moved = Math.hypot(m.pos.x - st.chkX, m.pos.z - st.chkZ);
@@ -572,6 +576,76 @@
       wRef: null, wDone: false, wDirX: 1, wDirZ: 0, wWant: 4, wPanic: false,
       chkT: 0, chkX: m.pos.x, chkZ: m.pos.z, stuck: 0, sideT: 0, side: 1, inWater: false, noDirectUntil: 0,
     };
+  }
+
+  // ------------------------------------------------------------------ doors
+  // Villagers and piglins open doors (and close them behind them); zombies bash them down on
+  // Normal and Hard. Everyone else treats a closed door as a wall.
+  const OPENERS = { villager: 1, piglin: 1 }, BREAKERS = { zombie: 1, husk: 1, drowned: 1 };
+  function doorMode(m) {
+    if (OPENERS[m.type]) return 1;
+    if (BREAKERS[m.type] && m.game.difficulty >= 2 && !m.game.nw) return 2;
+    return 0;
+  }
+  // The closed door the mob is walking into, as its lower block, or null
+  function doorAhead(m, dx, dz) {
+    const w = m.game.world, reach = m.w / 2 + 0.45;
+    const x = Math.floor(m.pos.x + dx * reach), z = Math.floor(m.pos.z + dz * reach), y = Math.floor(m.pos.y + 0.05);
+    for (const yy of [y, y + 1]) {
+      const id = w.getBlock(x, yy, z);
+      if (id !== B.DOOR_LOWER && id !== B.DOOR_UPPER) continue;
+      const ly = id === B.DOOR_UPPER ? yy - 1 : yy, d = w.getData(x, ly, z);
+      return d && d.open ? null : { x, y: ly, z };
+    }
+    return null;
+  }
+  function doorStep(m, st, dt, dx, dz, mode) {
+    const g = m.game, d = doorAhead(m, dx, dz);
+    st.atDoor = false;
+    if (!d) { st.breakT = 0; return; }
+    const key = d.x + ',' + d.y + ',' + d.z, pos = { x: d.x + 0.5, y: d.y + 1, z: d.z + 0.5 };
+    if (mode === 1) {
+      g.toggleDoor(d.x, d.y, d.z, B.DOOR_LOWER);
+      m.swing = 1;
+      (st.opened || (st.opened = [])).push({ x: d.x, y: d.y, z: d.z, t: g.simTime });
+      return;
+    }
+    // bashing: knock, crack, and finally break it
+    st.atDoor = true;
+    if (st.breakKey !== key) { st.breakKey = key; st.breakT = 0; st.knock = 0; }
+    st.breakT += dt; st.knock -= dt;
+    m.targetYaw = Math.atan2(-dx, -dz);
+    if (st.knock <= 0) {
+      st.knock = 0.7;
+      m.swing = 1;
+      Sound.block('wood', 0.9, pos);
+      if (g.particles) g.particles.burst(pos.x, pos.y, pos.z, B.DOOR_LOWER, 5);
+    }
+    if (st.breakT >= (g.difficulty >= 3 ? 3 : 6)) {
+      st.breakT = 0; st.breakKey = null; st.atDoor = false;
+      g.changeBlock(d.x, d.y, d.z, B.AIR);
+      g.spawnItem(stackOf(ITEM.DOOR, 1), pos.x, pos.y - 0.5, pos.z);
+      Sound.block('wood', 1.4, pos);
+      if (g.particles) g.particles.burst(pos.x, pos.y, pos.z, B.DOOR_LOWER, 18);
+      st.planAt = -1e9;
+    }
+  }
+  // Villagers shut the doors they opened once they're through
+  function closeBehind(m, st) {
+    if (!st.opened || !st.opened.length) return;
+    const g = m.game, w = g.world;
+    st.opened = st.opened.filter((o) => {
+      const dist = Math.hypot(m.pos.x - o.x - 0.5, m.pos.z - o.z - 0.5);
+      if (dist > 12 || w.getBlock(o.x, o.y, o.z) !== B.DOOR_LOWER) return false;
+      const d = w.getData(o.x, o.y, o.z);
+      if (!d || !d.open) return false;
+      if (g.simTime - o.t < 0.8 || dist < 1.6) return true;
+      const busy = (p) => Math.floor(p.x) === o.x && Math.floor(p.z) === o.z && p.y < o.y + 2 && p.y > o.y - 1;
+      if (g.player && busy(g.player.pos)) return true;
+      for (const other of g.mobs.values()) if (other !== m && busy(other.pos)) return true;
+      g.toggleDoor(o.x, o.y, o.z, B.DOOR_LOWER);
+      return false;
+    });
   }
 
   // ------------------------------------------------------------------ hooks
@@ -642,6 +716,10 @@
         else if (st.inWater && FDIST < 1.6) this.vel.y = Math.max(this.vel.y, 6);
       }
     }
+    const dm = g.isAuthority === false ? 0 : doorMode(this);
+    if (dm && os > 0 && (ox || oz)) doorStep(this, st, dt, ox, oz, dm);
+    else st.atDoor = false;
+    if (dm === 1) closeBehind(this, st);
     const res = locomote(this, dt, ox, oz, os);
     st.inWater = !!(res && res.inWater);
     trackStuck(this, st, dt, os, mode);
