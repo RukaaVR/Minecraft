@@ -139,6 +139,7 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/bestiary.js` | Mob models and their pixel-art textures (auto-packed texture sheets), face shading for all models, mobs looking at you |
 | `js/pathfind.js` | Mob pathfinding: A* over standable blocks, path following and smoothing, stuck detection, physics substeps for slow frames |
 | `js/textures3.js` | Redrawn block and item textures: hand-built patterns and small palettes painted over the atlas |
+| `js/mobs3.js` | More mobs: rabbit, fox, cat, bat, squid, bee, goat, husk, stray, drowned, witch, cave spider, silverfish, phantom, polar bear, horse; status effects (poison, slowness, hunger) |
 | `js/samples.js` | Recorded sound effects made with ForgeGUI, streamed at startup and played through the sound chain; synthesized sounds are the fallback |
 | `js/options.js` | The Options screens, key binds (an input layer that translates rebound keys), sound categories and subtitles |
 | `js/visuals.js` | Natural body poses, the 3D inventory player, held-item light, camera effects, item pickup flight, blob shadows, vignette, crit sparks |
