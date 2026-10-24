@@ -138,6 +138,7 @@ In inventories: left click picks up or places a stack, right click splits a stac
 | `js/skins.js` | The player skin's pixel art, outfits, the layered player model, armour on the model |
 | `js/bestiary.js` | Mob models and their pixel-art textures (auto-packed texture sheets), face shading for all models, mobs looking at you |
 | `js/pathfind.js` | Mob pathfinding: A* over standable blocks, path following and smoothing, stuck detection, physics substeps for slow frames |
+| `js/textures3.js` | Redrawn block and item textures: hand-built patterns and small palettes painted over the atlas |
 | `js/options.js` | The Options screens, key binds (an input layer that translates rebound keys), sound categories and subtitles |
 | `js/visuals.js` | Natural body poses, the 3D inventory player, held-item light, camera effects, item pickup flight, blob shadows, vignette, crit sparks |
 | `server/server.js` | Multiplayer server and static file host |
